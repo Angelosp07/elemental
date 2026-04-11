@@ -1,0 +1,80 @@
+import { Bell, Box, ChartCandlestick, FileText, LogOut, Ship, Truck } from 'lucide-react'
+import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { useAuth } from '../../contexts/AuthContext'
+import { useProfile } from '../../hooks/useTradingData'
+
+const navItems = [
+  { to: '/dashboard', label: 'Dashboard', icon: ChartCandlestick },
+  { to: '/markets', label: 'Markets', icon: Box },
+  { to: '/contracts', label: 'Contracts', icon: FileText },
+  { to: '/cargo', label: 'Live Cargo', icon: Ship },
+  { to: '/freight', label: 'Freight Desk', icon: Truck },
+]
+
+export function AppShell() {
+  const navigate = useNavigate()
+  const { signOut } = useAuth()
+  const { data: profile } = useProfile()
+
+  const handleSignOut = async () => {
+    await signOut()
+    navigate('/login', { replace: true })
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100">
+      <div className="grid min-h-screen grid-cols-[76px_1fr]">
+        <aside className="border-r border-slate-800 bg-slate-900/60 p-3">
+          <div className="mb-6 flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-600 text-sm font-bold">
+            ST
+          </div>
+
+          <nav className="space-y-2">
+            {navItems.map(({ to, label, icon: Icon }) => (
+              <NavLink
+                key={to}
+                to={to}
+                className={({ isActive }) =>
+                  `group flex h-10 w-10 items-center justify-center rounded-md border text-slate-300 transition ${
+                    isActive
+                      ? 'border-indigo-400/70 bg-indigo-500/20 text-indigo-200'
+                      : 'border-slate-800 bg-slate-900 hover:border-slate-700'
+                  }`
+                }
+                title={label}
+              >
+                <Icon className="h-4 w-4" />
+              </NavLink>
+            ))}
+          </nav>
+        </aside>
+
+        <div className="flex min-h-screen flex-col">
+          <header className="flex items-center justify-between border-b border-slate-800 bg-slate-900/50 px-6 py-3">
+            <h1 className="text-sm font-semibold text-slate-300">Stochastic Candlestick MVP</h1>
+
+            <div className="flex items-center gap-3">
+              <button className="rounded-md border border-slate-700 bg-slate-900 p-2 text-slate-300">
+                <Bell className="h-4 w-4" />
+              </button>
+              <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-sm text-slate-200">
+                {profile?.username ?? 'Trader'}
+              </span>
+              <button
+                onClick={handleSignOut}
+                className="inline-flex items-center gap-1 rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-800"
+              >
+                <LogOut className="h-4 w-4" />
+                Logout
+              </button>
+            </div>
+          </header>
+
+          <main className="flex-1 p-4 md:p-6">
+            <Outlet />
+          </main>
+        </div>
+      </div>
+    </div>
+  )
+}
