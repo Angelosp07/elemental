@@ -69,6 +69,10 @@ function normalizeJoin<T>(value: T | T[] | null | undefined): T | null {
   return Array.isArray(value) ? value[0] ?? null : value
 }
 
+function normalizeUsernameQuery(value: string): string {
+  return value.replace(/^@+/, '').trim().replace(/\s+/g, ' ')
+}
+
 function statusBadgeClass(status: ContractRow['status']): string {
   if (status === 'signed') {
     return 'bg-green-500/20 text-green-400'
@@ -244,7 +248,9 @@ export function Contracts() {
       return
     }
 
-    if (!counterpartyQuery.trim()) {
+    const query = normalizeUsernameQuery(counterpartyQuery)
+
+    if (!query) {
       setCounterpartyResults([])
       setCounterpartyLoading(false)
       return
@@ -252,13 +258,16 @@ export function Contracts() {
 
     let active = true
     setCounterpartyLoading(true)
+    setError(null)
 
     const handle = setTimeout(async () => {
       const { data, error: searchError } = await supabase
         .from('profiles')
         .select('id, username')
-        .ilike('username', `%${counterpartyQuery.trim()}%`)
+        .ilike('username', `%${query}%`)
         .neq('id', user.id)
+        .not('username', 'is', null)
+        .order('username')
         .limit(10)
 
       if (!active) {
@@ -307,7 +316,10 @@ export function Contracts() {
   }, [contracts, repositorySearch, statusFilter])
 
   const userNotFound =
-    counterpartyQuery.trim().length > 0 && !counterpartyLoading && counterpartyResults.length === 0
+    normalizeUsernameQuery(counterpartyQuery).length > 0 &&
+    !selectedCounterparty &&
+    !counterpartyLoading &&
+    counterpartyResults.length === 0
 
   const createContract = async () => {
     if (!user || !selectedCounterparty) {

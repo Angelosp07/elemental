@@ -474,6 +474,24 @@ export function Dashboard() {
           <p className="mt-1 text-xs text-amber-200/80">Track shipments and route progress</p>
         </Link>
 
+        <Link
+          to="/chat"
+          className="rounded-xl border border-blue-500/40 bg-blue-500/10 p-4 transition hover:border-blue-400/70 hover:bg-blue-500/20"
+        >
+          <p className="text-xs uppercase tracking-wide text-blue-300">Chat</p>
+          <p className="mt-1 text-lg font-semibold text-blue-100">Open Messaging</p>
+          <p className="mt-1 text-xs text-blue-200/80">Direct message counterparties and users</p>
+        </Link>
+
+        <Link
+          to="/settings"
+          className="rounded-xl border border-fuchsia-500/40 bg-fuchsia-500/10 p-4 transition hover:border-fuchsia-400/70 hover:bg-fuchsia-500/20"
+        >
+          <p className="text-xs uppercase tracking-wide text-fuchsia-300">Settings</p>
+          <p className="mt-1 text-lg font-semibold text-fuchsia-100">Open Settings</p>
+          <p className="mt-1 text-xs text-fuchsia-200/80">Manage account and preferences</p>
+        </Link>
+
         <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
           <p className="text-xs uppercase tracking-wide text-slate-400">Total Equity</p>
           <p className="mt-1 text-2xl font-bold text-cyan-300">£{formatMoney(totalEquity)}</p>

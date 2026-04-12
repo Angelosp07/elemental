@@ -6,6 +6,8 @@ import {
   Eye,
   FileText,
   LogOut,
+  MessageSquare,
+  Settings,
   Ship,
   Truck,
   Wallet,
@@ -21,8 +23,10 @@ const navItems = [
   { to: '/portfolio', label: 'Portfolio', icon: Wallet },
   { to: '/watchlist', label: 'Watchlist', icon: Eye },
   { to: '/contracts', label: 'Contracts', icon: FileText },
+  { to: '/chat', label: 'Chat', icon: MessageSquare },
   { to: '/cargo', label: 'Live Cargo', icon: Ship },
   { to: '/freight', label: 'Freight Desk', icon: Truck },
+  { to: '/settings', label: 'Settings', icon: Settings },
 ]
 
 export function AppShell() {
