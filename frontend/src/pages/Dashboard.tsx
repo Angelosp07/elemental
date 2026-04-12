@@ -456,6 +456,24 @@ export function Dashboard() {
           <p className="mt-1 text-xs text-emerald-200/80">Browse metals, charts, and prices</p>
         </Link>
 
+        <Link
+          to="/freight"
+          className="rounded-xl border border-violet-500/40 bg-violet-500/10 p-4 transition hover:border-violet-400/70 hover:bg-violet-500/20"
+        >
+          <p className="text-xs uppercase tracking-wide text-violet-300">Freight</p>
+          <p className="mt-1 text-lg font-semibold text-violet-100">Open Freight Desk</p>
+          <p className="mt-1 text-xs text-violet-200/80">Evaluate routes, rates, and vessel fit</p>
+        </Link>
+
+        <Link
+          to="/cargo"
+          className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 transition hover:border-amber-400/70 hover:bg-amber-500/20"
+        >
+          <p className="text-xs uppercase tracking-wide text-amber-300">Cargo</p>
+          <p className="mt-1 text-lg font-semibold text-amber-100">Open Live Cargo</p>
+          <p className="mt-1 text-xs text-amber-200/80">Track shipments and route progress</p>
+        </Link>
+
         <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
           <p className="text-xs uppercase tracking-wide text-slate-400">Total Equity</p>
           <p className="mt-1 text-2xl font-bold text-cyan-300">£{formatMoney(totalEquity)}</p>

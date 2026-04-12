@@ -1,5 +1,5 @@
+import { useEffect, useState } from 'react'
 import {
-  Bell,
   Box,
   ChartCandlestick,
   Crosshair,
@@ -12,7 +12,7 @@ import {
 } from 'lucide-react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
-import { useProfile } from '../../hooks/useTradingData'
+import { supabase } from '../../lib/supabase'
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: ChartCandlestick },
@@ -27,8 +27,37 @@ const navItems = [
 
 export function AppShell() {
   const navigate = useNavigate()
-  const { signOut } = useAuth()
-  const { data: profile } = useProfile()
+  const { signOut, user } = useAuth()
+  const [username, setUsername] = useState('Trader')
+
+  useEffect(() => {
+    if (!user) {
+      setUsername('Trader')
+      return
+    }
+
+    let active = true
+
+    const loadProfile = async () => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('username')
+        .eq('id', user.id)
+        .maybeSingle()
+
+      if (!active || error) {
+        return
+      }
+
+      setUsername(data?.username ?? 'Trader')
+    }
+
+    void loadProfile()
+
+    return () => {
+      active = false
+    }
+  }, [user])
 
   const handleSignOut = async () => {
     await signOut()
@@ -68,11 +97,8 @@ export function AppShell() {
             <h1 className="text-sm font-semibold text-slate-300">ElementalX</h1>
 
             <div className="flex items-center gap-3">
-              <button className="rounded-md border border-slate-700 bg-slate-900 p-2 text-slate-300">
-                <Bell className="h-4 w-4" />
-              </button>
               <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-sm text-slate-200">
-                {profile?.username ?? 'Trader'}
+                {username}
               </span>
               <button
                 onClick={handleSignOut}

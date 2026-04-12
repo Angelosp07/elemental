@@ -8,7 +8,7 @@ import { AppShell } from './components/layout/AppShell.tsx'
 import { Cargo } from './pages/Cargo.tsx'
 import { Contracts } from './pages/Contracts.tsx'
 import { Dashboard } from './pages/Dashboard.tsx'
-import { Freight } from './pages/Freight.tsx'
+import { FreightDesk } from './pages/FreightDesk.tsx'
 import { Login } from './pages/Login.tsx'
 import { MetalDetail } from './pages/MetalDetail.tsx'
 import { Markets } from './pages/Markets.tsx'
@@ -71,7 +71,7 @@ const router = createBrowserRouter([
           },
           {
             path: 'freight',
-            element: <Freight />,
+            element: <FreightDesk />,
           },
         ],
       },
