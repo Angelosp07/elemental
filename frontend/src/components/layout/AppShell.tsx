@@ -1,11 +1,25 @@
-import { Bell, Box, ChartCandlestick, FileText, LogOut, Ship, Truck } from 'lucide-react'
+import {
+  Bell,
+  Box,
+  ChartCandlestick,
+  Crosshair,
+  Eye,
+  FileText,
+  LogOut,
+  Ship,
+  Truck,
+  Wallet,
+} from 'lucide-react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { useProfile } from '../../hooks/useTradingData'
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: ChartCandlestick },
+  { to: '/trade', label: 'Trade', icon: Crosshair },
   { to: '/markets', label: 'Markets', icon: Box },
+  { to: '/portfolio', label: 'Portfolio', icon: Wallet },
+  { to: '/watchlist', label: 'Watchlist', icon: Eye },
   { to: '/contracts', label: 'Contracts', icon: FileText },
   { to: '/cargo', label: 'Live Cargo', icon: Ship },
   { to: '/freight', label: 'Freight Desk', icon: Truck },
@@ -26,7 +40,7 @@ export function AppShell() {
       <div className="grid min-h-screen grid-cols-[76px_1fr]">
         <aside className="border-r border-slate-800 bg-slate-900/60 p-3">
           <div className="mb-6 flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-600 text-sm font-bold">
-            ST
+            EX
           </div>
 
           <nav className="space-y-2">
@@ -51,7 +65,7 @@ export function AppShell() {
 
         <div className="flex min-h-screen flex-col">
           <header className="flex items-center justify-between border-b border-slate-800 bg-slate-900/50 px-6 py-3">
-            <h1 className="text-sm font-semibold text-slate-300">Stochastic Candlestick MVP</h1>
+            <h1 className="text-sm font-semibold text-slate-300">ElementalX</h1>
 
             <div className="flex items-center gap-3">
               <button className="rounded-md border border-slate-700 bg-slate-900 p-2 text-slate-300">

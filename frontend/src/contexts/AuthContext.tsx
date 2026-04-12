@@ -25,17 +25,39 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     let active = true
+    const timeoutHandle = setTimeout(() => {
+      if (active) {
+        setLoading(false)
+      }
+    }, 2500)
 
     const loadSession = async () => {
-      const { data } = await supabase.auth.getSession()
+      try {
+        const { data, error } = await supabase.auth.getSession()
 
-      if (!active) {
-        return
+        if (!active) {
+          return
+        }
+
+        if (error) {
+          setSession(null)
+          setUser(null)
+        } else {
+          setSession(data.session)
+          setUser(data.session?.user ?? null)
+        }
+      } catch {
+        if (!active) {
+          return
+        }
+
+        setSession(null)
+        setUser(null)
+      } finally {
+        if (active) {
+          setLoading(false)
+        }
       }
-
-      setSession(data.session)
-      setUser(data.session?.user ?? null)
-      setLoading(false)
     }
 
     void loadSession()
@@ -50,6 +72,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
     return () => {
       active = false
+      clearTimeout(timeoutHandle)
       subscription.unsubscribe()
     }
   }, [])

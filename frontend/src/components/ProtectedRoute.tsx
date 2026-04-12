@@ -1,16 +1,27 @@
+import { useEffect, useState } from 'react'
 import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext.tsx'
 
 export function ProtectedRoute() {
   const { loading, user } = useAuth()
   const location = useLocation()
+  const [loadingTimedOut, setLoadingTimedOut] = useState(false)
 
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-300">
-        Loading session…
-      </div>
-    )
+  useEffect(() => {
+    if (!loading) {
+      setLoadingTimedOut(false)
+      return
+    }
+
+    const timeoutId = setTimeout(() => {
+      setLoadingTimedOut(true)
+    }, 2500)
+
+    return () => clearTimeout(timeoutId)
+  }, [loading])
+
+  if (loading && !loadingTimedOut) {
+    return <div>Loading...</div>
   }
 
   if (!user) {

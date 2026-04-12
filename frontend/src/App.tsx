@@ -10,8 +10,12 @@ import { Contracts } from './pages/Contracts.tsx'
 import { Dashboard } from './pages/Dashboard.tsx'
 import { Freight } from './pages/Freight.tsx'
 import { Login } from './pages/Login.tsx'
+import { MetalDetail } from './pages/MetalDetail.tsx'
 import { Markets } from './pages/Markets.tsx'
+import { Portfolio } from './pages/Portfolio.tsx'
 import { Signup } from './pages/Signup.tsx'
+import { Trade } from './pages/Trade.tsx'
+import { Watchlist } from './pages/Watchlist.tsx'
 
 const router = createBrowserRouter([
   {
@@ -40,6 +44,22 @@ const router = createBrowserRouter([
           {
             path: 'markets',
             element: <Markets />,
+          },
+          {
+            path: 'markets/:assetId',
+            element: <MetalDetail />,
+          },
+          {
+            path: 'portfolio',
+            element: <Portfolio />,
+          },
+          {
+            path: 'trade',
+            element: <Trade />,
+          },
+          {
+            path: 'watchlist',
+            element: <Watchlist />,
           },
           {
             path: 'contracts',

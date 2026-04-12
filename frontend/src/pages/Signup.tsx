@@ -1,14 +1,24 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+
+
 import type { FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 
 export function Signup() {
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (user) {
+      navigate('/dashboard', { replace: true })
+    }
+  }, [navigate, user])
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -33,10 +43,10 @@ export function Signup() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-950 px-4">
+    <main className="flex min-h-screen items-center justify-center bg-slate-950 px-4 text-slate-100">
       <section className="w-full max-w-md rounded-xl border border-slate-800 bg-slate-900/70 p-6">
-        <h1 className="text-2xl font-semibold text-slate-100">Create account</h1>
-        <p className="mt-1 text-sm text-slate-400">Sign up to enter the dashboard</p>
+        <h1 className="text-2xl font-semibold">Create account</h1>
+        <p className="mt-1 text-sm text-slate-400">Sign up to access the dashboard</p>
 
         <form onSubmit={handleSubmit} className="mt-5 space-y-4">
           <div>
