@@ -1,5 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Badge } from '../components/ui/Badge'
+import { Card } from '../components/ui/Card'
+import { EmptyState } from '../components/ui/EmptyState'
+import { SkeletonRow } from '../components/ui/SkeletonRow'
+import { formatUSD } from '../utils/formatNumber'
 import { supabase } from '../lib/supabase'
 
 type Asset = {
@@ -14,6 +19,37 @@ type PriceState = {
 }
 
 type FlashState = 'up' | 'down' | 'neutral'
+
+function PriceCell({
+  value,
+  flash,
+  direction,
+}: {
+  value: number | null
+  flash?: FlashState
+  direction: FlashState
+}) {
+  const tdRef = useRef<HTMLTableCellElement>(null)
+
+  useEffect(() => {
+    if (!tdRef.current || flash === 'neutral' || !flash) {
+      return
+    }
+
+    tdRef.current.classList.remove('flash-green', 'flash-red')
+    void tdRef.current.offsetWidth
+    tdRef.current.classList.add(flash === 'up' ? 'flash-green' : 'flash-red')
+  }, [flash, value])
+
+  const colorClass =
+    direction === 'up' ? 'text-emerald-400' : direction === 'down' ? 'text-red-400' : 'text-gray-300'
+
+  return (
+    <td ref={tdRef} className={`px-4 py-3 text-right font-mono text-sm tabular-nums w-[180px] ${colorClass}`}>
+      {typeof value === 'number' ? formatUSD(value) : '—'}
+    </td>
+  )
+}
 
 export function Markets() {
   const navigate = useNavigate()
@@ -181,73 +217,81 @@ export function Markets() {
     [assets, flashByAsset, pricesByAsset]
   )
 
-  if (loading) {
-    return <p className="text-slate-400">Loading markets…</p>
-  }
-
-  if (error) {
-    return <p className="text-rose-400">{error}</p>
-  }
-
   return (
-    <section className="space-y-4">
-      <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-        <h2 className="text-lg font-semibold">Markets</h2>
-        <p className="mt-1 text-xs text-slate-400">
+    <section className="space-y-6">
+      <div>
+        <h1 className="text-xl font-semibold text-white mb-1">Markets</h1>
+        <p className="text-sm text-gray-500 mb-6">Real-time critical minerals market overview.</p>
+      </div>
+
+      <Card>
+        <h2 className="text-sm font-medium text-gray-400 uppercase tracking-wider mb-3">Market table</h2>
+        <p className="text-sm text-gray-500">
           Click a metal row to open its chart and buy/sell page.
         </p>
-      </article>
+      </Card>
 
-      <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-        <div className="overflow-hidden rounded-md border border-slate-800">
+      {error ? (
+        <Card>
+          <p className="text-sm text-red-400">{error}</p>
+        </Card>
+      ) : null}
+
+      <Card>
+        <div className="overflow-hidden rounded-md border border-white/[0.08]">
           <table className="min-w-full divide-y divide-slate-800 text-left text-sm">
-            <thead className="bg-slate-950/60 text-xs uppercase tracking-wide text-slate-400">
+            <thead className="bg-[var(--bg-elevated)] text-xs uppercase tracking-wide text-slate-400">
               <tr>
                 <th className="px-4 py-3">Symbol</th>
                 <th className="px-4 py-3">Name</th>
-                <th className="w-36 px-4 py-3 text-right">Current Price</th>
+                <th className="w-[180px] px-4 py-3 text-right">Current Price</th>
                 <th className="w-32 px-4 py-3 text-right">Direction</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
-              {rows.map((row) => {
+              {loading ? (
+                <tr>
+                  <td colSpan={4} className="px-4 py-2">
+                    {Array.from({ length: 6 }).map((_, index) => (
+                      <SkeletonRow key={index} />
+                    ))}
+                  </td>
+                </tr>
+              ) : rows.length === 0 ? (
+                <tr>
+                  <td colSpan={4}>
+                    <EmptyState message="No market assets available" sub="Add assets in Supabase to populate this view." />
+                  </td>
+                </tr>
+              ) : (
+                rows.map((row) => {
                 const direction = row.direction
-
-                const colorClass =
-                  direction === 'up'
-                    ? 'text-green-400'
-                    : direction === 'down'
-                      ? 'text-red-400'
-                      : 'text-slate-300'
-
-                const flashClass =
-                  row.flash === 'up'
-                    ? 'bg-green-500/10'
-                    : row.flash === 'down'
-                      ? 'bg-red-500/10'
-                      : ''
 
                 return (
                   <tr
                     key={row.id}
-                    className={`cursor-pointer transition-colors ${flashClass} hover:bg-indigo-500/10`}
+                    className="cursor-pointer transition-colors hover:bg-indigo-500/10"
                     onClick={() => navigate(`/markets/${row.id}`)}
                   >
                     <td className="px-4 py-3 font-mono font-semibold text-slate-100">{row.symbol}</td>
                     <td className="px-4 py-3 text-slate-300">{row.name}</td>
-                    <td className={`px-4 py-3 text-right font-mono tabular-nums ${colorClass}`}>
-                      {typeof row.currentPrice === 'number' ? row.currentPrice.toFixed(2) : '—'}
-                    </td>
-                    <td className={`px-4 py-3 text-right text-xs font-semibold uppercase ${colorClass}`}>
-                      {direction === 'up' ? 'UP' : direction === 'down' ? 'DOWN' : 'FLAT'}
+                    <PriceCell value={row.currentPrice} flash={row.flash} direction={direction} />
+                    <td className="px-4 py-3 text-right text-xs font-semibold uppercase">
+                      {direction === 'up' ? (
+                        <Badge label="UP" variant="green" />
+                      ) : direction === 'down' ? (
+                        <Badge label="DOWN" variant="red" />
+                      ) : (
+                        <Badge label="FLAT" variant="gray" />
+                      )}
                     </td>
                   </tr>
                 )
-              })}
+              }))}
             </tbody>
           </table>
         </div>
-      </article>
+      </Card>
     </section>
   )
 }

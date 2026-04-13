@@ -57,9 +57,12 @@ export function Chat() {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<ProfileLite[]>([])
   const [searchLoading, setSearchLoading] = useState(false)
+  const [searchError, setSearchError] = useState<string | null>(null)
+  const [showSearchDropdown, setShowSearchDropdown] = useState(false)
 
   const [selectedPartner, setSelectedPartner] = useState<ProfileLite | null>(null)
   const [recentConversations, setRecentConversations] = useState<RecentConversation[]>([])
+  const [unreadPartnerIds, setUnreadPartnerIds] = useState<Record<string, boolean>>({})
 
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [messageText, setMessageText] = useState('')
@@ -69,6 +72,7 @@ export function Chat() {
   const [error, setError] = useState<string | null>(null)
 
   const bottomRef = useRef<HTMLDivElement>(null)
+  const searchRef = useRef<HTMLDivElement>(null)
 
   const loadCurrentUsername = useCallback(async () => {
     if (!user) {
@@ -233,6 +237,7 @@ export function Chat() {
           void loadRecentConversations()
 
           if (!selectedPartner || incoming.sender_id !== selectedPartner.id) {
+            setUnreadPartnerIds((current) => ({ ...current, [incoming.sender_id]: true }))
             return
           }
 
@@ -278,13 +283,24 @@ export function Chat() {
 
     if (!query) {
       setSearchResults([])
+      setSearchError(null)
       setSearchLoading(false)
+      setShowSearchDropdown(false)
+      return
+    }
+
+    if (query.length < 2) {
+      setSearchResults([])
+      setSearchError(null)
+      setSearchLoading(false)
+      setShowSearchDropdown(true)
       return
     }
 
     let active = true
     setSearchLoading(true)
-    setError(null)
+    setSearchError(null)
+    setShowSearchDropdown(true)
 
     const timer = setTimeout(async () => {
       const { data, error: searchError } = await supabase
@@ -301,12 +317,15 @@ export function Chat() {
       }
 
       if (searchError) {
-        setError(searchError.message)
+        console.error('Search error:', searchError.message)
+        setSearchError('Search failed. Please try again.')
+        setSearchResults([])
         setSearchLoading(false)
         return
       }
 
       setSearchResults((data ?? []) as ProfileLite[])
+      setSearchError(null)
       setSearchLoading(false)
     }, 300)
 
@@ -315,6 +334,21 @@ export function Chat() {
       clearTimeout(timer)
     }
   }, [searchQuery, user])
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!searchRef.current) {
+        return
+      }
+
+      if (!searchRef.current.contains(event.target as Node)) {
+        setShowSearchDropdown(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   const selectedLastMessageTime = useMemo(
     () => (messages.length > 0 ? messages[messages.length - 1].createdAt : null),
@@ -383,11 +417,16 @@ export function Chat() {
   }
 
   if (loading) {
-    return <p className="text-slate-400">Loading chat…</p>
+    return <p className="text-sm text-gray-500">Loading chat…</p>
   }
 
   return (
-    <section className="space-y-4">
+    <section className="space-y-6">
+      <div>
+        <h1 className="text-xl font-semibold text-white mb-1">Chat</h1>
+        <p className="text-sm text-gray-500 mb-6">Realtime direct messaging with counterparties.</p>
+      </div>
+
       {error ? (
         <p className="rounded-md border border-rose-800 bg-rose-900/20 px-3 py-2 text-sm text-rose-300">
           {error}
@@ -398,10 +437,18 @@ export function Chat() {
         <aside className="w-80 shrink-0 rounded-xl border border-slate-800 bg-slate-900/70 p-4">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Conversations</h2>
 
-          <div className="mt-3">
+          <div ref={searchRef} className="mt-3">
             <input
               value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
+              onFocus={() => {
+                if (normalizeUsernameQuery(searchQuery).length > 0) {
+                  setShowSearchDropdown(true)
+                }
+              }}
+              onChange={(event) => {
+                setSearchQuery(event.target.value)
+                setSearchError(null)
+              }}
               placeholder="Type username..."
               className="w-full rounded-md border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm"
             />
@@ -412,24 +459,41 @@ export function Chat() {
               </p>
             ) : null}
 
-            {searchLoading ? <p className="mt-2 text-xs text-slate-400">Searching users…</p> : null}
-
-            {searchResults.length > 0 ? (
+            {showSearchDropdown ? (
               <div className="mt-2 max-h-40 space-y-1 overflow-y-auto rounded-md border border-slate-800 bg-slate-950/60 p-2">
-                {searchResults.map((result) => (
-                  <button
-                    key={result.id}
-                    type="button"
-                    onClick={() => {
-                      setSelectedPartner(result)
-                      setSearchQuery('')
-                      setSearchResults([])
-                    }}
-                    className="w-full rounded px-2 py-1 text-left text-sm text-slate-200 hover:bg-slate-800"
-                  >
-                    {result.username ?? 'Unknown'}
-                  </button>
-                ))}
+                {searchLoading ? <p className="text-xs text-slate-400">Searching...</p> : null}
+                {!searchLoading && normalizeUsernameQuery(searchQuery).length < 2 ? (
+                  <p className="text-xs text-slate-500">Type at least 2 characters</p>
+                ) : null}
+                {!searchLoading && searchError ? (
+                  <p className="text-xs text-rose-300">{searchError}</p>
+                ) : null}
+                {!searchLoading && !searchError && searchResults.length === 0 && normalizeUsernameQuery(searchQuery).length >= 2 ? (
+                  <p className="text-xs text-slate-400">No users found</p>
+                ) : null}
+                {!searchLoading && !searchError
+                  ? searchResults.map((result) => (
+                      <button
+                        key={result.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedPartner(result)
+                          setUnreadPartnerIds((current) => {
+                            const clone = { ...current }
+                            delete clone[result.id]
+                            return clone
+                          })
+                          setSearchQuery(result.username ?? '')
+                          setSearchResults([])
+                          setShowSearchDropdown(false)
+                          setSearchError(null)
+                        }}
+                        className="w-full rounded px-2 py-1 text-left text-sm text-slate-200 hover:bg-slate-800"
+                      >
+                        {result.username ?? 'Unknown'}
+                      </button>
+                    ))
+                  : null}
               </div>
             ) : null}
           </div>
@@ -443,17 +507,27 @@ export function Chat() {
                 <button
                   key={conversation.partnerId}
                   type="button"
-                  onClick={() =>
+                  onClick={() => {
                     setSelectedPartner({
                       id: conversation.partnerId,
                       username: conversation.partnerUsername,
                     })
-                  }
+                    setUnreadPartnerIds((current) => {
+                      const clone = { ...current }
+                      delete clone[conversation.partnerId]
+                      return clone
+                    })
+                  }}
                   className={`w-full rounded-md border border-slate-800 px-3 py-2 text-left hover:bg-white/5 ${
                     selectedPartner?.id === conversation.partnerId ? 'bg-white/10' : 'bg-slate-950/40'
                   }`}
                 >
-                  <p className="text-sm font-medium text-slate-200">{conversation.partnerUsername}</p>
+                  <p className="flex items-center gap-2 text-sm font-medium text-slate-200">
+                    {conversation.partnerUsername}
+                    {unreadPartnerIds[conversation.partnerId] ? (
+                      <span className="h-1.5 w-1.5 rounded-full bg-indigo-400" aria-label="Unread conversation" />
+                    ) : null}
+                  </p>
                   <p className="truncate text-xs text-slate-400">{conversation.lastMessage}</p>
                   <p className="mt-1 text-[11px] text-slate-500">
                     {formatLondonTime(conversation.lastMessageAt)}
@@ -501,8 +575,8 @@ export function Chat() {
                           <div
                             className={
                               isMine
-                                ? 'bg-blue-600 text-white rounded-2xl rounded-br-sm px-4 py-2 max-w-xs ml-auto'
-                                : 'bg-gray-700 text-white rounded-2xl rounded-bl-sm px-4 py-2 max-w-xs'
+                                ? 'bg-blue-600 text-white rounded-2xl rounded-tl-sm px-4 py-2 max-w-xs ml-auto'
+                                : 'bg-gray-700 text-white rounded-2xl rounded-tr-sm px-4 py-2 max-w-xs'
                             }
                           >
                             {message.message}
@@ -532,7 +606,11 @@ export function Chat() {
                     type="button"
                     disabled={!canSend}
                     onClick={() => void handleSend()}
-                    className="rounded-md bg-indigo-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-400 disabled:opacity-50"
+                    className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                      canSend
+                        ? 'bg-indigo-500 text-white hover:bg-indigo-400'
+                        : 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                    }`}
                   >
                     Send
                   </button>

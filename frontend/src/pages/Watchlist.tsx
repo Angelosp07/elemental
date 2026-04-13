@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { formatLondonDateTime } from '../lib/datetime'
 import { supabase } from '../lib/supabase'
+import { createNotification } from '../utils/notifications'
 
 type Asset = {
   id: string
@@ -277,6 +278,19 @@ export function Watchlist() {
         pendingTriggerRef.current.delete(alert.id)
 
         if (!updateError) {
+          const assetSymbol = normalizeAsset(alert.asset)?.symbol ?? 'Asset'
+          try {
+            await createNotification(
+              user.id,
+              'alert_triggered',
+              'Price alert triggered',
+              `${assetSymbol} is now ${alert.condition} ${Number(alert.target_price).toFixed(2)}`,
+              alert.id
+            )
+          } catch {
+            setError('Notification setup is not available yet. Please run notification SQL setup.')
+          }
+
           setAlerts((current) =>
             current.map((item) =>
               item.id === alert.id
@@ -460,7 +474,7 @@ export function Watchlist() {
                 className="w-full rounded-md border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm"
               >
                 {availableToAdd.length === 0 ? (
-                  <option value="">All assets are tracked</option>
+                  <option value="">All assets are already in your watchlist</option>
                 ) : (
                   availableToAdd.map((asset) => (
                     <option key={asset.id} value={asset.id}>
@@ -478,6 +492,10 @@ export function Watchlist() {
                 Add
               </button>
             </div>
+          ) : null}
+
+          {addOpen && availableToAdd.length === 0 ? (
+            <p className="mb-3 text-xs text-slate-500">All assets are already in your watchlist</p>
           ) : null}
 
           <div className="overflow-hidden rounded-md border border-slate-800">

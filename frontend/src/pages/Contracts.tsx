@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { formatLondonTime } from '../utils/formatTime'
+import { createNotification } from '../utils/notifications'
 
 type Asset = {
   id: string
@@ -37,11 +38,33 @@ type ContractRow = {
   origin_port: string
   destination_port: string
   status: 'draft' | 'signed' | 'completed' | 'cancelled'
+  inspection_company: string | null
+  inspection_status: 'not_started' | 'pending' | 'passed' | 'failed'
+  inspection_note: string | null
+  inspected_at: string | null
   buyer_signed_at: string | null
   seller_signed_at: string | null
   created_at: string
   buyer: ProfileJoin | ProfileJoin[] | null
   seller: ProfileJoin | ProfileJoin[] | null
+}
+
+type ContractDocument = {
+  id: string
+  contract_id: string
+  uploaded_by: string
+  document_type:
+    | 'certificate_of_analysis'
+    | 'bill_of_lading'
+    | 'commercial_invoice'
+    | 'packing_list'
+    | 'certificate_of_origin'
+    | 'insurance_certificate'
+    | 'other'
+  file_name: string
+  storage_path: string
+  created_at: string
+  uploader: ProfileJoin | ProfileJoin[] | null
 }
 
 type ContractEvent = {
@@ -58,8 +81,23 @@ type AmendDraft = {
   price_per_kg: string
 }
 
+type VerificationDraft = {
+  inspection_company: string
+  inspection_status: 'not_started' | 'pending' | 'passed' | 'failed'
+  inspection_note: string
+}
+
 const purityOptions = ['90', '92', '95', '97', '99', '99.5']
 const deliveryTermsOptions = ['DAP', 'FOB', 'CIF']
+const documentTypeOptions: Array<ContractDocument['document_type']> = [
+  'certificate_of_analysis',
+  'bill_of_lading',
+  'commercial_invoice',
+  'packing_list',
+  'certificate_of_origin',
+  'insurance_certificate',
+  'other',
+]
 
 function normalizeJoin<T>(value: T | T[] | null | undefined): T | null {
   if (!value) {
@@ -89,18 +127,42 @@ function statusBadgeClass(status: ContractRow['status']): string {
   return 'bg-slate-500/20 text-slate-300'
 }
 
+function inspectionBadgeConfig(status: ContractRow['inspection_status']) {
+  if (status === 'passed') {
+    return { label: 'Inspection passed', className: 'bg-green-500/20 text-green-400' }
+  }
+
+  if (status === 'failed') {
+    return { label: 'Inspection failed', className: 'bg-red-500/20 text-red-400' }
+  }
+
+  if (status === 'pending') {
+    return { label: 'Inspection in progress', className: 'bg-amber-500/20 text-amber-400' }
+  }
+
+  return { label: 'Inspection pending', className: 'bg-slate-500/20 text-slate-300' }
+}
+
+function formatDocumentType(value: ContractDocument['document_type']): string {
+  return value.replace(/_/g, ' ')
+}
+
 export function Contracts() {
   const { user } = useAuth()
 
   const [assets, setAssets] = useState<Asset[]>([])
   const [ports, setPorts] = useState<Port[]>([])
   const [contracts, setContracts] = useState<ContractRow[]>([])
+  const [documentsByContract, setDocumentsByContract] = useState<Record<string, ContractDocument[]>>({})
   const [currentUsername, setCurrentUsername] = useState('User')
 
   const [counterpartyQuery, setCounterpartyQuery] = useState('')
   const [counterpartyResults, setCounterpartyResults] = useState<ProfileLookup[]>([])
   const [selectedCounterparty, setSelectedCounterparty] = useState<ProfileLookup | null>(null)
   const [counterpartyLoading, setCounterpartyLoading] = useState(false)
+  const [counterpartySearchError, setCounterpartySearchError] = useState<string | null>(null)
+  const [showCounterpartyDropdown, setShowCounterpartyDropdown] = useState(false)
+  const counterpartySearchRef = useRef<HTMLDivElement>(null)
 
   const [selectedSymbol, setSelectedSymbol] = useState('')
   const [purityPct, setPurityPct] = useState(purityOptions[0])
@@ -123,6 +185,11 @@ export function Contracts() {
     purity_pct: purityOptions[0],
     price_per_kg: '',
   })
+  const [verificationDrafts, setVerificationDrafts] = useState<Record<string, VerificationDraft>>({})
+  const [uploadTypeByContract, setUploadTypeByContract] = useState<
+    Record<string, ContractDocument['document_type']>
+  >({})
+  const [storageReady, setStorageReady] = useState(true)
 
   const [loading, setLoading] = useState(true)
   const [working, setWorking] = useState(false)
@@ -149,6 +216,10 @@ export function Contracts() {
           origin_port,
           destination_port,
           status,
+          inspection_company,
+          inspection_status,
+          inspection_note,
+          inspected_at,
           buyer_signed_at,
           seller_signed_at,
           created_at,
@@ -163,7 +234,61 @@ export function Contracts() {
       throw new Error(contractsError.message)
     }
 
-    setContracts((data ?? []) as ContractRow[])
+    const loadedContracts = (data ?? []) as ContractRow[]
+    setContracts(loadedContracts)
+    setVerificationDrafts((current) => {
+      const next = { ...current }
+
+      for (const contract of loadedContracts) {
+        if (next[contract.id]) {
+          continue
+        }
+
+        next[contract.id] = {
+          inspection_company: contract.inspection_company ?? '',
+          inspection_status: contract.inspection_status,
+          inspection_note: contract.inspection_note ?? '',
+        }
+      }
+
+      return next
+    })
+
+    if (loadedContracts.length > 0) {
+      const contractIds = loadedContracts.map((contract) => contract.id)
+      const { data: docsData, error: docsError } = await supabase
+        .from('contract_documents')
+        .select(
+          `
+            id,
+            contract_id,
+            uploaded_by,
+            document_type,
+            file_name,
+            storage_path,
+            created_at,
+            uploader:profiles!contract_documents_uploaded_by_fkey(username)
+          `
+        )
+        .in('contract_id', contractIds)
+        .order('created_at', { ascending: false })
+
+      if (docsError) {
+        setDocumentsByContract({})
+        return
+      }
+
+      const grouped: Record<string, ContractDocument[]> = {}
+      for (const document of (docsData ?? []) as ContractDocument[]) {
+        if (!grouped[document.contract_id]) {
+          grouped[document.contract_id] = []
+        }
+        grouped[document.contract_id].push(document)
+      }
+      setDocumentsByContract(grouped)
+    } else {
+      setDocumentsByContract({})
+    }
   }
 
   const loadPageData = async () => {
@@ -244,6 +369,22 @@ export function Contracts() {
   }, [user])
 
   useEffect(() => {
+    const checkStorage = async () => {
+      const { data, error: bucketsError } = await supabase.storage.listBuckets()
+
+      if (bucketsError) {
+        setStorageReady(false)
+        return
+      }
+
+      const exists = (data ?? []).some((bucket) => bucket.id === 'contract-documents')
+      setStorageReady(exists)
+    }
+
+    void checkStorage()
+  }, [])
+
+  useEffect(() => {
     if (!user) {
       return
     }
@@ -253,12 +394,23 @@ export function Contracts() {
     if (!query) {
       setCounterpartyResults([])
       setCounterpartyLoading(false)
+      setCounterpartySearchError(null)
+      setShowCounterpartyDropdown(false)
+      return
+    }
+
+    if (query.length < 2) {
+      setCounterpartyResults([])
+      setCounterpartyLoading(false)
+      setCounterpartySearchError(null)
+      setShowCounterpartyDropdown(true)
       return
     }
 
     let active = true
     setCounterpartyLoading(true)
-    setError(null)
+    setCounterpartySearchError(null)
+    setShowCounterpartyDropdown(true)
 
     const handle = setTimeout(async () => {
       const { data, error: searchError } = await supabase
@@ -275,13 +427,15 @@ export function Contracts() {
       }
 
       if (searchError) {
+        console.error('Search error:', searchError.message)
         setCounterpartyResults([])
-        setError(searchError.message)
+        setCounterpartySearchError('Search failed. Please try again.')
         setCounterpartyLoading(false)
         return
       }
 
       setCounterpartyResults((data ?? []) as ProfileLookup[])
+      setCounterpartySearchError(null)
       setCounterpartyLoading(false)
     }, 300)
 
@@ -290,6 +444,21 @@ export function Contracts() {
       clearTimeout(handle)
     }
   }, [counterpartyQuery, user])
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!counterpartySearchRef.current) {
+        return
+      }
+
+      if (!counterpartySearchRef.current.contains(event.target as Node)) {
+        setShowCounterpartyDropdown(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   const filteredContracts = useMemo(() => {
     const query = repositorySearch.trim().toLowerCase()
@@ -315,11 +484,23 @@ export function Contracts() {
     })
   }, [contracts, repositorySearch, statusFilter])
 
-  const userNotFound =
-    normalizeUsernameQuery(counterpartyQuery).length > 0 &&
-    !selectedCounterparty &&
-    !counterpartyLoading &&
-    counterpartyResults.length === 0
+  const notifyIfOtherParty = async (
+    recipientId: string,
+    type: string,
+    title: string,
+    body: string,
+    relatedId?: string
+  ) => {
+    if (!user || recipientId === user.id) {
+      return
+    }
+
+    try {
+      await createNotification(recipientId, type, title, body, relatedId)
+    } catch {
+      setError('Notification setup is not available yet. Please run notification SQL setup.')
+    }
+  }
 
   const createContract = async () => {
     if (!user || !selectedCounterparty) {
@@ -345,25 +526,37 @@ export function Contracts() {
     setWorking(true)
     setError(null)
 
-    const { error: createError } = await supabase.from('contracts').insert({
-      buyer_id: user.id,
-      seller_id: selectedCounterparty.id,
-      asset_symbol: selectedSymbol,
-      quantity_kg: parsedQuantity,
-      purity_pct: parsedPurity,
-      price_per_kg: parsedPrice,
-      currency: 'USD',
-      delivery_terms: deliveryTerms,
-      origin_port: originPort,
-      destination_port: destinationPort,
-      status: 'draft',
-    })
+    const { data: createdContract, error: createError } = await supabase
+      .from('contracts')
+      .insert({
+        buyer_id: user.id,
+        seller_id: selectedCounterparty.id,
+        asset_symbol: selectedSymbol,
+        quantity_kg: parsedQuantity,
+        purity_pct: parsedPurity,
+        price_per_kg: parsedPrice,
+        currency: 'USD',
+        delivery_terms: deliveryTerms,
+        origin_port: originPort,
+        destination_port: destinationPort,
+        status: 'draft',
+      })
+      .select('id')
+      .maybeSingle()
 
     if (createError) {
       setError(createError.message)
       setWorking(false)
       return
     }
+
+    await notifyIfOtherParty(
+      selectedCounterparty.id,
+      'contract_created',
+      'New contract request',
+      `${currentUsername} has created a contract for ${parsedQuantity}kg of ${selectedSymbol}`,
+      createdContract?.id
+    )
 
     setSelectedCounterparty(null)
     setCounterpartyQuery('')
@@ -429,6 +622,15 @@ export function Contracts() {
       setError(eventError.message)
     }
 
+    const recipientId = isBuyer ? contract.seller_id : contract.buyer_id
+    await notifyIfOtherParty(
+      recipientId,
+      'contract_signed',
+      'Contract signed',
+      `${currentUsername} has signed contract #${contract.id}`,
+      contract.id
+    )
+
     await loadContracts()
     setWorking(false)
   }
@@ -493,9 +695,184 @@ export function Contracts() {
       setError(eventError.message)
     }
 
+    const targetContract = contracts.find((contract) => contract.id === contractId)
+    const recipientId =
+      targetContract?.buyer_id === user.id ? targetContract?.seller_id : targetContract?.buyer_id
+
+    if (recipientId) {
+      await notifyIfOtherParty(
+        recipientId,
+        'contract_amended',
+        'Contract amended',
+        `${currentUsername} has amended contract #${contractId}`,
+        contractId
+      )
+    }
+
     setAmendingContractId(null)
     await loadContracts()
     setWorking(false)
+  }
+
+  const saveVerification = async (contract: ContractRow) => {
+    if (!user) {
+      return
+    }
+
+    const draft = verificationDrafts[contract.id]
+    if (!draft) {
+      return
+    }
+
+    setWorking(true)
+    setError(null)
+
+    const inspectedAt =
+      draft.inspection_status === 'passed' || draft.inspection_status === 'failed'
+        ? new Date().toISOString()
+        : null
+
+    const { error: updateError } = await supabase
+      .from('contracts')
+      .update({
+        inspection_company: draft.inspection_company || null,
+        inspection_status: draft.inspection_status,
+        inspection_note: draft.inspection_note || null,
+        inspected_at: inspectedAt,
+      })
+      .eq('id', contract.id)
+
+    if (updateError) {
+      setError(updateError.message)
+      setWorking(false)
+      return
+    }
+
+    const note = `Inspection status set to ${draft.inspection_status} by ${currentUsername}${
+      draft.inspection_note ? `: ${draft.inspection_note}` : ''
+    }`
+
+    await supabase.from('contract_events').insert({
+      contract_id: contract.id,
+      actor_id: user.id,
+      event_type: 'inspection_update',
+      note,
+    })
+
+    await notifyIfOtherParty(
+      contract.buyer_id,
+      'inspection_update',
+      'Inspection update',
+      `Inspection status updated to ${draft.inspection_status} on contract #${contract.id}`,
+      contract.id
+    )
+
+    await notifyIfOtherParty(
+      contract.seller_id,
+      'inspection_update',
+      'Inspection update',
+      `Inspection status updated to ${draft.inspection_status} on contract #${contract.id}`,
+      contract.id
+    )
+
+    await loadContracts()
+    setWorking(false)
+  }
+
+  const uploadDocument = async (
+    contract: ContractRow,
+    file: File,
+    documentType: ContractDocument['document_type']
+  ) => {
+    if (!user) {
+      return
+    }
+
+    if (!storageReady) {
+      setError('Storage bucket `contract-documents` is not configured yet')
+      return
+    }
+
+    const validMimeTypes = ['application/pdf', 'image/png', 'image/jpeg']
+    const validExtensions = ['.pdf', '.png', '.jpg', '.jpeg']
+    const lowerName = file.name.toLowerCase()
+    const hasValidExtension = validExtensions.some((ext) => lowerName.endsWith(ext))
+
+    if (!validMimeTypes.includes(file.type) && !hasValidExtension) {
+      setError('Only PDF and image documents are supported')
+      return
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      setError('File size must be 10MB or less')
+      return
+    }
+
+    setWorking(true)
+    setError(null)
+
+    const path = `${contract.id}/${Date.now()}_${file.name}`
+
+    const { error: uploadError } = await supabase.storage
+      .from('contract-documents')
+      .upload(path, file)
+
+    if (uploadError) {
+      setError(uploadError.message)
+      setWorking(false)
+      return
+    }
+
+    const { error: insertError } = await supabase.from('contract_documents').insert({
+      contract_id: contract.id,
+      uploaded_by: user.id,
+      document_type: documentType,
+      file_name: file.name,
+      storage_path: path,
+    })
+
+    if (insertError) {
+      setError(insertError.message)
+      setWorking(false)
+      return
+    }
+
+    await supabase.from('contract_events').insert({
+      contract_id: contract.id,
+      actor_id: user.id,
+      event_type: 'document_uploaded',
+      note: `${formatDocumentType(documentType)} uploaded: ${file.name}`,
+    })
+
+    const recipientId = contract.buyer_id === user.id ? contract.seller_id : contract.buyer_id
+    await notifyIfOtherParty(
+      recipientId,
+      'document_uploaded',
+      'Document uploaded',
+      `${currentUsername} uploaded ${formatDocumentType(documentType)} on contract #${contract.id}`,
+      contract.id
+    )
+
+    await loadContracts()
+    setWorking(false)
+  }
+
+  const downloadDocument = async (storagePath: string, fileName: string) => {
+    const { data, error: downloadError } = await supabase.storage
+      .from('contract-documents')
+      .download(storagePath)
+
+    if (downloadError || !data) {
+      setError(downloadError?.message ?? 'Failed to download document')
+      return
+    }
+
+    const url = URL.createObjectURL(data)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = fileName
+    anchor.click()
+    URL.revokeObjectURL(url)
   }
 
   const openAudit = async (contractId: string) => {
@@ -546,11 +923,17 @@ export function Contracts() {
           <p className="mt-1 text-xs text-slate-400">Counterparty search and draft terms</p>
 
           <div className="mt-4 space-y-3">
-            <div>
+            <div ref={counterpartySearchRef}>
               <input
                 value={counterpartyQuery}
+                onFocus={() => {
+                  if (normalizeUsernameQuery(counterpartyQuery).length > 0) {
+                    setShowCounterpartyDropdown(true)
+                  }
+                }}
                 onChange={(event) => {
                   setCounterpartyQuery(event.target.value)
+                  setCounterpartySearchError(null)
                   setSelectedCounterparty(null)
                 }}
                 placeholder="Search counterparty username"
@@ -563,30 +946,41 @@ export function Contracts() {
                 </p>
               ) : null}
 
-              {counterpartyLoading ? (
-                <p className="mt-2 text-xs text-slate-400">Searching users…</p>
-              ) : null}
-
-              {!counterpartyLoading && counterpartyResults.length > 0 ? (
+              {showCounterpartyDropdown ? (
                 <div className="mt-2 max-h-40 space-y-1 overflow-auto rounded-md border border-slate-800 bg-slate-950/60 p-2">
-                  {counterpartyResults.map((result) => (
-                    <button
-                      key={result.id}
-                      type="button"
-                      onClick={() => {
-                        setSelectedCounterparty(result)
-                        setCounterpartyQuery(result.username)
-                        setCounterpartyResults([])
-                      }}
-                      className="w-full rounded px-2 py-1 text-left text-sm text-slate-200 hover:bg-slate-800"
-                    >
-                      @{result.username}
-                    </button>
-                  ))}
+                  {counterpartyLoading ? <p className="text-xs text-slate-400">Searching...</p> : null}
+                  {!counterpartyLoading && normalizeUsernameQuery(counterpartyQuery).length < 2 ? (
+                    <p className="text-xs text-slate-500">Type at least 2 characters</p>
+                  ) : null}
+                  {!counterpartyLoading && counterpartySearchError ? (
+                    <p className="text-xs text-rose-300">{counterpartySearchError}</p>
+                  ) : null}
+                  {!counterpartyLoading &&
+                  !counterpartySearchError &&
+                  counterpartyResults.length === 0 &&
+                  normalizeUsernameQuery(counterpartyQuery).length >= 2 ? (
+                    <p className="text-xs text-slate-400">No users found</p>
+                  ) : null}
+                  {!counterpartyLoading && !counterpartySearchError
+                    ? counterpartyResults.map((result) => (
+                        <button
+                          key={result.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedCounterparty(result)
+                            setCounterpartyQuery(result.username)
+                            setCounterpartyResults([])
+                            setShowCounterpartyDropdown(false)
+                            setCounterpartySearchError(null)
+                          }}
+                          className="w-full rounded px-2 py-1 text-left text-sm text-slate-200 hover:bg-slate-800"
+                        >
+                          @{result.username}
+                        </button>
+                      ))
+                    : null}
                 </div>
               ) : null}
-
-              {userNotFound ? <p className="mt-2 text-xs text-amber-300">User not found</p> : null}
             </div>
 
             <div className="grid gap-3 md:grid-cols-2">
@@ -741,6 +1135,14 @@ export function Contracts() {
                 const sellerUsername = normalizeJoin(contract.seller)?.username ?? 'Unknown'
                 const userIsBuyer = contract.buyer_id === user?.id
                 const userSigned = userIsBuyer ? Boolean(contract.buyer_signed_at) : Boolean(contract.seller_signed_at)
+                const verificationDraft = verificationDrafts[contract.id] ?? {
+                  inspection_company: contract.inspection_company ?? '',
+                  inspection_status: contract.inspection_status,
+                  inspection_note: contract.inspection_note ?? '',
+                }
+                const inspectionBadge = inspectionBadgeConfig(contract.inspection_status)
+                const contractDocuments = documentsByContract[contract.id] ?? []
+                const uploadType = uploadTypeByContract[contract.id] ?? 'other'
 
                 return (
                   <div
@@ -751,11 +1153,18 @@ export function Contracts() {
                       <h3 className="font-mono text-sm font-semibold text-cyan-300">
                         {contract.asset_symbol} · {Number(contract.quantity_kg).toLocaleString()} kg
                       </h3>
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-xs capitalize ${statusBadgeClass(contract.status)}`}
-                      >
-                        {contract.status}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-xs capitalize ${statusBadgeClass(contract.status)}`}
+                        >
+                          {contract.status}
+                        </span>
+                        {contract.status === 'signed' ? (
+                          <span className={`rounded-full px-2 py-0.5 text-xs ${inspectionBadge.className}`}>
+                            {inspectionBadge.label}
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
 
                     <p className="mt-1 text-xs text-slate-300">
@@ -873,6 +1282,147 @@ export function Contracts() {
                         </div>
                       </div>
                     ) : null}
+
+                    {contract.status === 'signed' ? (
+                      <div className="mt-3 rounded-md border border-slate-800 bg-slate-900/70 p-3">
+                        <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                          Verification
+                        </h4>
+                        <div className="grid gap-2 md:grid-cols-4">
+                          <input
+                            value={verificationDraft.inspection_company}
+                            onChange={(event) =>
+                              setVerificationDrafts((current) => ({
+                                ...current,
+                                [contract.id]: {
+                                  ...verificationDraft,
+                                  inspection_company: event.target.value,
+                                },
+                              }))
+                            }
+                            placeholder="Inspection company"
+                            className="rounded-md border border-slate-700 bg-slate-950/60 px-2 py-1 text-xs"
+                          />
+                          <select
+                            value={verificationDraft.inspection_status}
+                            onChange={(event) =>
+                              setVerificationDrafts((current) => ({
+                                ...current,
+                                [contract.id]: {
+                                  ...verificationDraft,
+                                  inspection_status: event.target.value as VerificationDraft['inspection_status'],
+                                },
+                              }))
+                            }
+                            className="rounded-md border border-slate-700 bg-slate-950/60 px-2 py-1 text-xs"
+                          >
+                            <option value="not_started">Not started</option>
+                            <option value="pending">Pending</option>
+                            <option value="passed">Passed</option>
+                            <option value="failed">Failed</option>
+                          </select>
+                          <input
+                            value={verificationDraft.inspection_note}
+                            onChange={(event) =>
+                              setVerificationDrafts((current) => ({
+                                ...current,
+                                [contract.id]: {
+                                  ...verificationDraft,
+                                  inspection_note: event.target.value,
+                                },
+                              }))
+                            }
+                            placeholder="Inspector note"
+                            className="rounded-md border border-slate-700 bg-slate-950/60 px-2 py-1 text-xs"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => saveVerification(contract)}
+                            className="rounded border border-indigo-500 px-2 py-1 text-xs text-indigo-300 hover:bg-indigo-900/20"
+                          >
+                            Save Verification
+                          </button>
+                        </div>
+                        {contract.inspected_at ? (
+                          <p className="mt-2 text-[11px] text-slate-500">
+                            Last inspection update: {formatLondonTime(contract.inspected_at)}
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
+
+                    <div className="mt-3 rounded-md border border-slate-800 bg-slate-900/70 p-3">
+                      <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                        Documents
+                      </h4>
+                      {!storageReady ? (
+                        <p className="mb-2 text-xs text-amber-300">
+                          Storage bucket `contract-documents` is missing. Run setup SQL first.
+                        </p>
+                      ) : null}
+                      <div className="mb-2 grid gap-2 md:grid-cols-[1fr_1fr_auto]">
+                        <select
+                          value={uploadType}
+                          onChange={(event) =>
+                            setUploadTypeByContract((current) => ({
+                              ...current,
+                              [contract.id]: event.target.value as ContractDocument['document_type'],
+                            }))
+                          }
+                          className="rounded-md border border-slate-700 bg-slate-950/60 px-2 py-1 text-xs"
+                        >
+                          {documentTypeOptions.map((option) => (
+                            <option key={option} value={option}>
+                              {formatDocumentType(option)}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          type="file"
+                          accept=".pdf,.png,.jpg,.jpeg"
+                          onChange={(event) => {
+                            const file = event.target.files?.[0]
+                            if (!file) {
+                              return
+                            }
+
+                            void uploadDocument(contract, file, uploadType)
+                            event.currentTarget.value = ''
+                          }}
+                          className="rounded-md border border-slate-700 bg-slate-950/60 px-2 py-1 text-xs"
+                        />
+                        <span className="self-center text-[11px] text-slate-500">Max 10MB</span>
+                      </div>
+
+                      <div className="space-y-1">
+                        {contractDocuments.length === 0 ? (
+                          <p className="text-xs text-slate-500">No documents uploaded.</p>
+                        ) : (
+                          contractDocuments.map((document) => (
+                            <div
+                              key={document.id}
+                              className="flex flex-wrap items-center justify-between gap-2 rounded border border-slate-800 bg-slate-950/60 px-2 py-2 text-xs"
+                            >
+                              <div>
+                                <p className="text-slate-200">{formatDocumentType(document.document_type)}</p>
+                                <p className="text-slate-400">{document.file_name}</p>
+                                <p className="text-slate-500">
+                                  {(normalizeJoin(document.uploader)?.username ?? 'Unknown')} ·{' '}
+                                  {formatLondonTime(document.created_at)}
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => downloadDocument(document.storage_path, document.file_name)}
+                                className="rounded border border-slate-700 px-2 py-1 text-xs text-slate-200 hover:bg-slate-800"
+                              >
+                                Download
+                              </button>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
                   </div>
                 )
               })

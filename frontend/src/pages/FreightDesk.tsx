@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Badge } from '../components/ui/Badge'
+import { Button } from '../components/ui/Button'
+import { Card } from '../components/ui/Card'
+import { EmptyState } from '../components/ui/EmptyState'
+import { Input } from '../components/ui/Input'
+import { Select } from '../components/ui/Select'
+import { Table } from '../components/ui/Table'
 import { supabase } from '../lib/supabase'
+import { formatNumber, formatUSD } from '../utils/formatNumber'
 import { formatLondonTime } from '../utils/formatTime'
 
 type Port = {
@@ -166,70 +174,55 @@ export function FreightDesk() {
     setRouteAvailable(true)
   }
 
-  if (loading) {
-    return <p className="text-slate-400">Loading freight desk…</p>
-  }
-
   return (
-    <section className="space-y-4">
+    <section className="space-y-6">
+      <div>
+        <h1 className="text-xl font-semibold text-white mb-1">Freight desk</h1>
+        <p className="text-sm text-gray-500 mb-6">Route intelligence, indicative rates, and vessel eligibility.</p>
+      </div>
+
       {error ? (
-        <p className="rounded-md border border-rose-800 bg-rose-900/20 px-3 py-2 text-sm text-rose-300">
-          {error}
-        </p>
+        <Card><p className="text-sm text-red-400">{error}</p></Card>
       ) : null}
 
-      <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-        <h2 className="text-lg font-semibold text-slate-100">Route Intelligence Query</h2>
-        <p className="mt-1 text-xs text-slate-400">Select route and cargo size to evaluate eligibility.</p>
+      <Card>
+        <h2 className="text-sm font-medium text-gray-400 uppercase tracking-wider mb-3">Route intelligence query</h2>
+        <p className="text-sm text-gray-500">Select route and cargo size to evaluate eligibility.</p>
 
         <div className="mt-4 grid gap-3 md:grid-cols-4">
-          <select
+          <Select
             value={originCode}
             onChange={(event) => setOriginCode(event.target.value)}
-            className="rounded-md border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm"
-          >
-            {ports.map((port) => (
-              <option key={port.code} value={port.code}>
-                {port.name} ({port.code})
-              </option>
-            ))}
-          </select>
+            options={ports.map((port) => ({ value: port.code, label: `${port.name} (${port.code})` }))}
+          />
 
-          <select
+          <Select
             value={destinationCode}
             onChange={(event) => setDestinationCode(event.target.value)}
-            className="rounded-md border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm"
-          >
-            {ports.map((port) => (
-              <option key={port.code} value={port.code}>
-                {port.name} ({port.code})
-              </option>
-            ))}
-          </select>
+            options={ports.map((port) => ({ value: port.code, label: `${port.name} (${port.code})` }))}
+          />
 
-          <input
+          <Input
             type="number"
             min="0"
             step="0.01"
+            label="Cargo (tons)"
             value={cargoTons}
             onChange={(event) => setCargoTons(event.target.value)}
             placeholder="Cargo (tons)"
-            className="rounded-md border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm"
           />
 
-          <button
-            type="button"
-            onClick={evaluateRoute}
-            className="rounded-md bg-indigo-500 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-400"
-          >
-            Evaluate Route
-          </button>
+          <div className="flex items-end">
+            <Button type="button" onClick={evaluateRoute} className="w-full" loading={loading}>
+              Evaluate route
+            </Button>
+          </div>
         </div>
-      </article>
+      </Card>
 
       {evaluated ? (
-        <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-          <h3 className="mb-2 text-sm font-semibold text-slate-300">Indicative Freight Rates</h3>
+        <Card className="animate-[fadeIn_260ms_ease-out]">
+          <h2 className="text-sm font-medium text-gray-400 uppercase tracking-wider mb-3">Indicative freight rates</h2>
           <div className="rounded-md border border-slate-800 bg-slate-950/60 px-3 py-3 text-sm">
             <p className="font-mono text-slate-200">
               {(originPort?.code ?? originCode) || '—'} → {(destinationPort?.code ?? destinationCode) || '—'}
@@ -237,7 +230,7 @@ export function FreightDesk() {
             {routeAvailable && freightRate ? (
               <>
                 <p className="mt-1 text-lg font-semibold text-cyan-300">
-                  ${Number(freightRate.usd_per_ton).toFixed(2)}/ton
+                  {formatUSD(Number(freightRate.usd_per_ton))}/ton
                 </p>
                 <p className="mt-1 text-xs text-slate-400">
                   Updated: {formatLondonTime(freightRate.updated_at)}
@@ -247,68 +240,59 @@ export function FreightDesk() {
               <p className="mt-1 text-sm text-amber-300">Route not available</p>
             )}
           </div>
-        </article>
+        </Card>
       ) : null}
 
       {evaluated ? (
-        <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-          <h3 className="mb-3 text-sm font-semibold text-slate-300">Vessel Eligibility</h3>
-          <div className="overflow-hidden rounded-md border border-slate-800">
-            <table className="min-w-full divide-y divide-slate-800 text-left text-sm">
-              <thead className="bg-slate-950/60 text-xs uppercase tracking-wide text-slate-400">
-                <tr>
-                  <th className="px-3 py-2">Vessel</th>
-                  <th className="px-3 py-2">Class</th>
-                  <th className="px-3 py-2">Capacity</th>
-                  <th className="px-3 py-2">Eligibility</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800">
-                {vesselEvaluations.map(({ vessel, eligible }) => (
-                  <tr key={vessel.id}>
-                    <td className="px-3 py-2 text-slate-100">{vessel.name}</td>
-                    <td className="px-3 py-2 text-slate-300">{vessel.vessel_class}</td>
-                    <td className="px-3 py-2 text-slate-300">{Number(vessel.max_cargo_tons).toFixed(0)} tons</td>
-                    <td className={`px-3 py-2 font-medium ${eligible ? 'text-green-400' : 'text-red-400'}`}>
-                      {eligible ? 'Eligible' : 'Ineligible'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </article>
+        <Card className="animate-[fadeIn_260ms_ease-out]">
+          <h2 className="text-sm font-medium text-gray-400 uppercase tracking-wider mb-3">Vessel eligibility</h2>
+          {vesselEvaluations.length === 0 ? (
+            <EmptyState message="No vessels to evaluate" />
+          ) : (
+            <Table<(typeof vesselEvaluations)[number]>
+              data={vesselEvaluations}
+              getRowKey={(row) => row.vessel.id}
+              rowClassName={(row) => (row.eligible ? 'bg-emerald-500/[0.05]' : 'bg-red-500/[0.05]')}
+              columns={[
+                { key: 'vessel', header: 'Vessel', render: (row) => row.vessel.name },
+                { key: 'class', header: 'Class', render: (row) => row.vessel.vessel_class },
+                {
+                  key: 'capacity',
+                  header: 'Capacity',
+                  render: (row) => `${formatNumber(Number(row.vessel.max_cargo_tons), 0)} tons`,
+                },
+                {
+                  key: 'eligible',
+                  header: 'Eligibility',
+                  render: (row) => (
+                    <Badge label={row.eligible ? 'Eligible' : 'Ineligible'} variant={row.eligible ? 'green' : 'red'} />
+                  ),
+                },
+              ]}
+            />
+          )}
+        </Card>
       ) : null}
 
-      <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-        <h3 className="mb-3 text-sm font-semibold text-slate-300">Port Constraint Database</h3>
-        <div className="overflow-hidden rounded-md border border-slate-800">
-          <table className="min-w-full divide-y divide-slate-800 text-left text-sm">
-            <thead className="bg-slate-950/60 text-xs uppercase tracking-wide text-slate-400">
-              <tr>
-                <th className="px-3 py-2">Port</th>
-                <th className="px-3 py-2">Country</th>
-                <th className="px-3 py-2">Max Draft</th>
-                <th className="px-3 py-2">Max Beam</th>
-                <th className="px-3 py-2">Max LOA</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800">
-              {ports.map((port) => (
-                <tr key={port.code}>
-                  <td className="px-3 py-2 text-slate-100">
-                    {port.name} ({port.code})
-                  </td>
-                  <td className="px-3 py-2 text-slate-300">{port.country}</td>
-                  <td className="px-3 py-2 text-slate-300">{Number(port.max_draft_m).toFixed(1)}m</td>
-                  <td className="px-3 py-2 text-slate-300">{Number(port.max_beam_m).toFixed(1)}m</td>
-                  <td className="px-3 py-2 text-slate-300">{Number(port.max_loa_m).toFixed(1)}m</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </article>
+      <Card>
+        <h2 className="text-sm font-medium text-gray-400 uppercase tracking-wider mb-3">Port constraint database</h2>
+        {loading ? (
+          Array.from({ length: 4 }).map((_, index) => <div key={index} className="h-8 rounded bg-white/5 animate-pulse mb-2" />)
+        ) : (
+          <Table<Port>
+            data={ports}
+            getRowKey={(port) => port.code}
+            emptyMessage="No ports configured"
+            columns={[
+              { key: 'port', header: 'Port', render: (port) => `${port.name} (${port.code})` },
+              { key: 'country', header: 'Country', render: (port) => port.country },
+              { key: 'draft', header: 'Max draft', render: (port) => `${formatNumber(Number(port.max_draft_m), 1)}m` },
+              { key: 'beam', header: 'Max beam', render: (port) => `${formatNumber(Number(port.max_beam_m), 1)}m` },
+              { key: 'loa', header: 'Max LOA', render: (port) => `${formatNumber(Number(port.max_loa_m), 1)}m` },
+            ]}
+          />
+        )}
+      </Card>
     </section>
   )
 }

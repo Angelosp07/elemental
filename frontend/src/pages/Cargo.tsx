@@ -1,17 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import L, { type DivIcon } from 'leaflet'
-import { MapContainer, Marker, Polyline, TileLayer, Tooltip } from 'react-leaflet'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { formatLondonTime } from '../utils/formatTime'
-import iconUrl from 'leaflet/dist/images/marker-icon.png'
-import iconShadow from 'leaflet/dist/images/marker-shadow.png'
-
-L.Marker.prototype.options.icon = L.icon({
-  iconUrl,
-  shadowUrl: iconShadow,
-  iconAnchor: [12, 41],
-})
+import { createNotification } from '../utils/notifications'
+import { CargoMap } from '../components/CargoMap'
 
 type ProfileJoin = {
   username: string | null
@@ -21,6 +13,8 @@ type ContractJoin = {
   id: string
   asset_symbol: string
   quantity_kg: number
+  buyer_id: string
+  seller_id: string
   buyer: ProfileJoin | ProfileJoin[] | null
   seller: ProfileJoin | ProfileJoin[] | null
 }
@@ -115,18 +109,10 @@ function statusBadgeClass(status: ShipmentStatus): string {
   return 'bg-slate-500/20 text-slate-300'
 }
 
-function dotIcon(colorClass: string): DivIcon {
-  return L.divIcon({
-    className: '',
-    html: `<span class="block h-3 w-3 rounded-full border border-white/70 ${colorClass}"></span>`,
-    iconSize: [12, 12],
-    iconAnchor: [6, 6],
-  })
+function statusProgressIndex(status: ShipmentStatus): number {
+  const progression: ShipmentStatus[] = ['planned', 'departed', 'in_transit', 'arrived', 'delivered']
+  return progression.indexOf(status)
 }
-
-const originIcon = dotIcon('bg-amber-400')
-const destinationIcon = dotIcon('bg-teal-400')
-const vesselIcon = dotIcon('bg-white')
 
 export function Cargo() {
   const { user } = useAuth()
@@ -189,7 +175,7 @@ export function Cargo() {
           destination_port,
           broker_name,
           created_at,
-          contract:contracts(
+          contract:contracts!inner(
             id,
             asset_symbol,
             quantity_kg,
@@ -203,7 +189,7 @@ export function Cargo() {
           destination:ports!shipments_destination_port_fkey(code, name, latitude, longitude)
         `
       )
-      .or(`contract.buyer_id.eq.${user.id},contract.seller_id.eq.${user.id}`)
+      .or(`buyer_id.eq.${user.id},seller_id.eq.${user.id}`, { foreignTable: 'contracts' })
       .order('created_at', { ascending: false })
 
     if (shipmentsError) {
@@ -286,38 +272,6 @@ export function Cargo() {
     [shipments]
   )
 
-  const mapCoordinates = useMemo(() => {
-    const points: [number, number][] = []
-
-    for (const shipment of shipments) {
-      const origin = normalizeJoin(shipment.origin)
-      const destination = normalizeJoin(shipment.destination)
-
-      if (origin?.latitude != null && origin?.longitude != null) {
-        points.push([Number(origin.latitude), Number(origin.longitude)])
-      }
-
-      if (destination?.latitude != null && destination?.longitude != null) {
-        points.push([Number(destination.latitude), Number(destination.longitude)])
-      }
-
-      if (shipment.current_lat != null && shipment.current_lon != null) {
-        points.push([Number(shipment.current_lat), Number(shipment.current_lon)])
-      }
-    }
-
-    return points
-  }, [shipments])
-
-  const mapCenter = useMemo<[number, number]>(() => {
-    if (mapCoordinates.length === 0) {
-      return [20, 0]
-    }
-
-    const [first] = mapCoordinates
-    return first
-  }, [mapCoordinates])
-
   const updateShipmentStatus = async (shipmentId: string, newStatus: ShipmentStatus) => {
     if (!user) {
       return
@@ -345,6 +299,37 @@ export function Cargo() {
 
     if (eventError) {
       setError(eventError.message)
+    }
+
+    const targetShipment = shipments.find((shipment) => shipment.id === shipmentId)
+    const contract = normalizeJoin(targetShipment?.contract)
+
+    if (contract?.buyer_id && contract.buyer_id !== user.id) {
+      try {
+        await createNotification(
+          contract.buyer_id,
+          'shipment_update',
+          'Shipment update',
+          `Shipment #${shipmentId} status changed to ${newStatus}`,
+          shipmentId
+        )
+      } catch {
+        setError('Notification setup is not available yet. Please run notification SQL setup.')
+      }
+    }
+
+    if (contract?.seller_id && contract.seller_id !== user.id) {
+      try {
+        await createNotification(
+          contract.seller_id,
+          'shipment_update',
+          'Shipment update',
+          `Shipment #${shipmentId} status changed to ${newStatus}`,
+          shipmentId
+        )
+      } catch {
+        setError('Notification setup is not available yet. Please run notification SQL setup.')
+      }
     }
 
     setShipments((current) =>
@@ -398,11 +383,16 @@ export function Cargo() {
   }
 
   if (loading) {
-    return <p className="text-slate-400">Loading cargo…</p>
+    return <p className="text-sm text-gray-500">Loading cargo…</p>
   }
 
   return (
-    <section className="space-y-4">
+    <section className="space-y-6">
+      <div>
+        <h1 className="text-xl font-semibold text-white mb-1">Live cargo</h1>
+        <p className="text-sm text-gray-500 mb-6">Shipment map, route milestones, and dispatch board.</p>
+      </div>
+
       {error ? (
         <p className="rounded-md border border-rose-800 bg-rose-900/20 px-3 py-2 text-sm text-rose-300">
           {error}
@@ -432,85 +422,8 @@ export function Cargo() {
       </div>
 
       <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-        <h2 className="mb-3 text-lg font-semibold text-slate-100">Live World Map</h2>
-        <MapContainer
-          center={mapCenter}
-          zoom={2}
-          scrollWheelZoom
-          className="rounded-md border border-slate-800"
-          style={{ height: '400px' }}
-          bounds={mapCoordinates.length > 0 ? mapCoordinates : undefined}
-        >
-          <TileLayer
-            attribution="&copy; OpenStreetMap contributors"
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          />
-
-          {shipments.map((shipment) => {
-            const origin = normalizeJoin(shipment.origin)
-            const destination = normalizeJoin(shipment.destination)
-
-            const originLat = origin?.latitude != null ? Number(origin.latitude) : null
-            const originLon = origin?.longitude != null ? Number(origin.longitude) : null
-            const destinationLat = destination?.latitude != null ? Number(destination.latitude) : null
-            const destinationLon = destination?.longitude != null ? Number(destination.longitude) : null
-
-            const hasRoute =
-              originLat != null &&
-              Number.isFinite(originLat) &&
-              originLon != null &&
-              Number.isFinite(originLon) &&
-              destinationLat != null &&
-              Number.isFinite(destinationLat) &&
-              destinationLon != null &&
-              Number.isFinite(destinationLon)
-
-            return (
-              <>
-                {originLat != null && originLon != null ? (
-                  <Marker
-                    key={`${shipment.id}-origin`}
-                    position={[originLat, originLon]}
-                    icon={originIcon}
-                  >
-                    <Tooltip>Origin · {origin?.code ?? shipment.origin_port}</Tooltip>
-                  </Marker>
-                ) : null}
-
-                {destinationLat != null && destinationLon != null ? (
-                  <Marker
-                    key={`${shipment.id}-destination`}
-                    position={[destinationLat, destinationLon]}
-                    icon={destinationIcon}
-                  >
-                    <Tooltip>Destination · {destination?.code ?? shipment.destination_port}</Tooltip>
-                  </Marker>
-                ) : null}
-
-                {hasRoute ? (
-                  <Polyline
-                    key={`${shipment.id}-line`}
-                    positions={[
-                      [originLat as number, originLon as number],
-                      [destinationLat as number, destinationLon as number],
-                    ]}
-                    pathOptions={{ color: '#60a5fa', dashArray: '6 6' }}
-                  />
-                ) : null}
-
-                {shipment.current_lat != null && shipment.current_lon != null ? (
-                  <Marker
-                    key={`${shipment.id}-vessel`}
-                    position={[Number(shipment.current_lat), Number(shipment.current_lon)]}
-                    icon={vesselIcon}
-                  >
-                    <Tooltip>Vessel position · {shipment.id}</Tooltip>
-                  </Marker>
-                ) : null}
-              </>
-            )
-          })}
-        </MapContainer>
+        <h2 className="text-sm font-medium text-gray-400 uppercase tracking-wider mb-3">Live world map</h2>
+        <CargoMap shipments={shipments} />
 
         <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-300">
           <span className="inline-flex items-center gap-1">
@@ -522,11 +435,21 @@ export function Cargo() {
           <span className="inline-flex items-center gap-1">
             <span className="h-2.5 w-2.5 rounded-full bg-white" /> Vessel
           </span>
+          <span className="inline-flex items-center gap-1">
+            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-cyan-200/90 bg-cyan-400/90 text-[9px] leading-none">🚢</span>{' '}
+            Demo vessel
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <span className="h-0.5 w-5 bg-cyan-300" /> Active route
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <span className="h-0.5 w-5 border-t border-dashed border-blue-300" /> Planned route
+          </span>
         </div>
       </article>
 
       <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-        <h2 className="mb-3 text-lg font-semibold text-slate-100">Route Progress Board</h2>
+        <h2 className="text-sm font-medium text-gray-400 uppercase tracking-wider mb-3">Route progress board</h2>
 
         {activeShipments.length === 0 ? (
           <p className="text-sm text-slate-400">No active shipments right now.</p>
@@ -559,7 +482,7 @@ export function Cargo() {
       </article>
 
       <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-        <h2 className="mb-3 text-lg font-semibold text-slate-100">Ready to Dispatch</h2>
+        <h2 className="text-sm font-medium text-gray-400 uppercase tracking-wider mb-3">Ready to dispatch</h2>
 
         {readyContracts.length === 0 ? (
           <p className="text-sm text-slate-400">No signed contracts waiting for shipment setup</p>
@@ -580,6 +503,7 @@ export function Cargo() {
                   <p className="text-xs text-slate-500">
                     {contract.origin_port} → {contract.destination_port}
                   </p>
+                  <p className="mt-1 text-xs text-amber-300">Warning: inspection status unavailable in current schema</p>
                 </div>
               )
             })}
@@ -588,7 +512,7 @@ export function Cargo() {
       </article>
 
       <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-        <h2 className="mb-3 text-lg font-semibold text-slate-100">Shipment Ledger</h2>
+        <h2 className="text-sm font-medium text-gray-400 uppercase tracking-wider mb-3">Shipment ledger</h2>
 
         {shipments.length === 0 ? (
           <p className="text-sm text-slate-400">No shipment records found.</p>
@@ -634,19 +558,32 @@ export function Cargo() {
                   ) : null}
 
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {(['departed', 'in_transit', 'arrived', 'delivered'] as ShipmentStatus[]).map((nextStatus) => (
-                      <button
-                        key={nextStatus}
-                        type="button"
-                        disabled={working || shipment.status === nextStatus}
-                        onClick={() => updateShipmentStatus(shipment.id, nextStatus)}
-                        className="rounded border border-slate-700 px-2 py-1 text-xs text-slate-200 hover:bg-slate-800 disabled:opacity-50"
-                      >
-                        {nextStatus === 'in_transit'
-                          ? 'In Transit'
-                          : nextStatus.charAt(0).toUpperCase() + nextStatus.slice(1)}
-                      </button>
-                    ))}
+                    {(['departed', 'in_transit', 'arrived', 'delivered'] as ShipmentStatus[]).map((nextStatus) => {
+                      const currentIndex = statusProgressIndex(shipment.status)
+                      const targetIndex = statusProgressIndex(nextStatus)
+                      const isCurrent = shipment.status === nextStatus
+                      const isFuture = targetIndex > currentIndex
+
+                      return (
+                        <button
+                          key={nextStatus}
+                          type="button"
+                          disabled={working || isCurrent}
+                          onClick={() => updateShipmentStatus(shipment.id, nextStatus)}
+                          className={`rounded border px-2 py-1 text-xs transition-colors disabled:opacity-60 ${
+                            isCurrent
+                              ? 'border-indigo-500/50 bg-indigo-500/20 text-indigo-200'
+                              : isFuture
+                                ? 'border-slate-700 text-slate-500 hover:bg-slate-800/20'
+                                : 'border-slate-700 text-slate-200 hover:bg-slate-800'
+                          }`}
+                        >
+                          {nextStatus === 'in_transit'
+                            ? 'In Transit'
+                            : nextStatus.charAt(0).toUpperCase() + nextStatus.slice(1)}
+                        </button>
+                      )
+                    })}
 
                     <button
                       type="button"

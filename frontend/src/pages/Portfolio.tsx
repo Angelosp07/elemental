@@ -1,7 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Badge } from '../components/ui/Badge'
+import { Button } from '../components/ui/Button'
+import { Card } from '../components/ui/Card'
+import { EmptyState } from '../components/ui/EmptyState'
+import { SkeletonRow } from '../components/ui/SkeletonRow'
+import { StatCard } from '../components/ui/StatCard'
+import { Table } from '../components/ui/Table'
 import { useAuth } from '../contexts/AuthContext'
 import { formatLondonDateTime } from '../lib/datetime'
 import { supabase } from '../lib/supabase'
+import { formatNumber, formatPercent, formatPnl, formatUSD } from '../utils/formatNumber'
 
 type Asset = {
   id: string
@@ -51,13 +59,6 @@ function normalizeAsset<T extends { symbol: string; name: string }>(
   return value
 }
 
-function formatMoney(amount: number): string {
-  return amount.toLocaleString('en-GB', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })
-}
-
 export function Portfolio() {
   const { user } = useAuth()
 
@@ -68,6 +69,7 @@ export function Portfolio() {
   const [latestPricesByAsset, setLatestPricesByAsset] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [showHistory, setShowHistory] = useState(false)
 
   useEffect(() => {
     if (!user) {
@@ -307,172 +309,165 @@ export function Portfolio() {
   const totalEquity = balance + holdingsValue
   const totalReturn = ((totalEquity - 100000) / 100000) * 100
 
-  if (loading) {
-    return <p className="text-slate-400">Loading portfolio…</p>
-  }
-
-  if (error) {
-    return <p className="text-rose-400">{error}</p>
-  }
-
   return (
-    <section className="space-y-4">
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-          <p className="text-xs uppercase tracking-wide text-slate-400">Cash Balance</p>
-          <p className="mt-1 text-2xl font-bold text-slate-100">£{formatMoney(balance)}</p>
-        </article>
-        <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-          <p className="text-xs uppercase tracking-wide text-slate-400">Holdings Value</p>
-          <p className="mt-1 text-2xl font-bold text-cyan-300">£{formatMoney(holdingsValue)}</p>
-        </article>
-        <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-          <p className="text-xs uppercase tracking-wide text-slate-400">Total Equity</p>
-          <p className="mt-1 text-2xl font-bold text-slate-100">£{formatMoney(totalEquity)}</p>
-        </article>
-        <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-          <p className="text-xs uppercase tracking-wide text-slate-400">Total Return</p>
-          <p className={`mt-1 text-2xl font-bold ${totalReturn >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-            {totalReturn.toFixed(2)}%
-          </p>
-        </article>
+    <section className="space-y-6">
+      <div>
+        <h1 className="text-xl font-semibold text-white mb-1">Portfolio</h1>
+        <p className="text-sm text-gray-500 mb-6">Positions, equity, and execution history.</p>
       </div>
 
-      <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-        <h2 className="mb-3 text-lg font-semibold">Open Positions</h2>
-        <div className="overflow-hidden rounded-md border border-slate-800">
-          <table className="min-w-full divide-y divide-slate-800 text-left text-sm">
-            <thead className="bg-slate-950/60 text-xs uppercase tracking-wide text-slate-400">
-              <tr>
-                <th className="px-4 py-3">Symbol</th>
-                <th className="px-4 py-3">Name</th>
-                <th className="px-4 py-3 text-right">Quantity</th>
-                <th className="px-4 py-3 text-right">Avg Entry</th>
-                <th className="px-4 py-3 text-right">Live</th>
-                <th className="px-4 py-3 text-right">Unrealised P&L</th>
-                <th className="px-4 py-3 text-right">Unrealised %</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800">
-              {positions.map((position) => {
-                const livePrice = latestPricesByAsset[position.asset.id] ?? 0
-                const unrealised = (livePrice - position.avgEntryPrice) * position.quantity
-                const unrealisedPct =
-                  position.avgEntryPrice > 0
-                    ? ((livePrice - position.avgEntryPrice) / position.avgEntryPrice) * 100
-                    : 0
-                const pnlClass = unrealised >= 0 ? 'text-green-400' : 'text-red-400'
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <StatCard label="Cash balance" value={formatUSD(balance)} />
+        <StatCard label="Holdings value" value={formatUSD(holdingsValue)} valueColor="amber" />
+        <StatCard label="Total equity" value={formatUSD(totalEquity)} />
+        <StatCard
+          label="Total return"
+          value={formatPercent(totalReturn)}
+          valueColor={totalReturn > 0 ? 'green' : totalReturn < 0 ? 'red' : 'default'}
+          sub="Baseline: $100,000"
+        />
+      </div>
 
-                return (
-                  <tr key={position.asset.id}>
-                    <td className="px-4 py-3 font-mono font-semibold text-slate-100">{position.asset.symbol}</td>
-                    <td className="px-4 py-3 text-slate-300">{position.asset.name}</td>
-                    <td className="px-4 py-3 text-right font-mono tabular-nums text-slate-200">
-                      {position.quantity.toFixed(2)}
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono tabular-nums text-slate-200">
-                      {position.avgEntryPrice.toFixed(2)}
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono tabular-nums text-cyan-300">
-                      {livePrice.toFixed(2)}
-                    </td>
-                    <td className={`px-4 py-3 text-right font-mono tabular-nums ${pnlClass}`}>
-                      {unrealised.toFixed(2)}
-                    </td>
-                    <td className={`px-4 py-3 text-right font-mono tabular-nums ${pnlClass}`}>
-                      {unrealisedPct.toFixed(2)}%
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      </article>
+      {error ? (
+        <Card>
+          <p className="text-sm text-red-400">{error}</p>
+        </Card>
+      ) : null}
 
-      <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-        <h2 className="mb-3 text-lg font-semibold">Order History</h2>
-        <div className="overflow-hidden rounded-md border border-slate-800">
-          <table className="min-w-full divide-y divide-slate-800 text-left text-sm">
-            <thead className="bg-slate-950/60 text-xs uppercase tracking-wide text-slate-400">
-              <tr>
-                <th className="px-4 py-3">Time</th>
-                <th className="px-4 py-3">Symbol</th>
-                <th className="px-4 py-3">Side</th>
-                <th className="px-4 py-3">Type</th>
-                <th className="px-4 py-3 text-right">Quantity</th>
-                <th className="px-4 py-3 text-right">Price</th>
-                <th className="px-4 py-3">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800">
-              {orders.map((order) => (
-                <tr key={order.id}>
-                  <td className="px-4 py-3 text-slate-300">{formatLondonDateTime(order.createdAt)}</td>
-                  <td className="px-4 py-3 font-mono font-semibold text-slate-100">{order.asset.symbol}</td>
-                  <td
-                    className={`px-4 py-3 font-semibold uppercase ${
-                      order.side === 'buy' ? 'text-green-400' : 'text-red-400'
-                    }`}
-                  >
-                    {order.side}
-                  </td>
-                  <td className="px-4 py-3 text-slate-300">{order.orderType}</td>
-                  <td className="px-4 py-3 text-right font-mono tabular-nums text-slate-200">
-                    {order.quantity.toFixed(2)}
-                  </td>
-                  <td className="px-4 py-3 text-right font-mono tabular-nums text-slate-200">
-                    {order.price.toFixed(2)}
-                  </td>
-                  <td className="px-4 py-3 text-slate-300">{order.status}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </article>
+      <Card>
+        <h2 className="text-sm font-medium text-gray-400 uppercase tracking-wider mb-3">Open positions</h2>
+        {loading ? (
+          Array.from({ length: 5 }).map((_, index) => <SkeletonRow key={index} />)
+        ) : positions.length === 0 ? (
+          <EmptyState message="No open positions" sub="Place orders in Trade to build your book." />
+        ) : (
+          <Table<Position>
+            data={positions}
+            getRowKey={(position) => position.asset.id}
+            columns={[
+              {
+                key: 'symbol',
+                header: 'Symbol',
+                render: (position) => <span className="font-mono text-white">{position.asset.symbol}</span>,
+              },
+              { key: 'name', header: 'Name', render: (position) => position.asset.name },
+              {
+                key: 'quantity',
+                header: 'Quantity',
+                align: 'right',
+                render: (position) => <span className="font-mono">{formatNumber(position.quantity)}</span>,
+              },
+              {
+                key: 'avg',
+                header: 'Avg entry',
+                align: 'right',
+                render: (position) => <span className="font-mono">{formatUSD(position.avgEntryPrice)}</span>,
+              },
+              {
+                key: 'live',
+                header: 'Live',
+                align: 'right',
+                render: (position) => (
+                  <span className="font-mono text-cyan-300">{formatUSD(latestPricesByAsset[position.asset.id] ?? 0)}</span>
+                ),
+              },
+              {
+                key: 'pnl',
+                header: 'Unrealised',
+                align: 'right',
+                render: (position) => {
+                  const livePrice = latestPricesByAsset[position.asset.id] ?? 0
+                  const unrealised = (livePrice - position.avgEntryPrice) * position.quantity
+                  const unrealisedPct =
+                    position.avgEntryPrice > 0
+                      ? ((livePrice - position.avgEntryPrice) / position.avgEntryPrice) * 100
+                      : 0
+                  const pnlClass =
+                    unrealised > 0 ? 'text-emerald-400' : unrealised < 0 ? 'text-red-400' : 'text-gray-500'
 
-      <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-        <h2 className="mb-3 text-lg font-semibold">Trade History</h2>
-        <div className="overflow-hidden rounded-md border border-slate-800">
-          <table className="min-w-full divide-y divide-slate-800 text-left text-sm">
-            <thead className="bg-slate-950/60 text-xs uppercase tracking-wide text-slate-400">
-              <tr>
-                <th className="px-4 py-3">Time</th>
-                <th className="px-4 py-3">Symbol</th>
-                <th className="px-4 py-3">Side</th>
-                <th className="px-4 py-3 text-right">Quantity</th>
-                <th className="px-4 py-3 text-right">Execution Price</th>
-                <th className="px-4 py-3 text-right">Fee</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800">
-              {fills.map((fill) => (
-                <tr key={fill.id}>
-                  <td className="px-4 py-3 text-slate-300">{formatLondonDateTime(fill.createdAt)}</td>
-                  <td className="px-4 py-3 font-mono font-semibold text-slate-100">{fill.asset.symbol}</td>
-                  <td
-                    className={`px-4 py-3 font-semibold uppercase ${
-                      fill.side === 'buy' ? 'text-green-400' : 'text-red-400'
-                    }`}
-                  >
-                    {fill.side}
-                  </td>
-                  <td className="px-4 py-3 text-right font-mono tabular-nums text-slate-200">
-                    {fill.quantity.toFixed(2)}
-                  </td>
-                  <td className="px-4 py-3 text-right font-mono tabular-nums text-slate-200">
-                    {fill.executionPrice.toFixed(2)}
-                  </td>
-                  <td className="px-4 py-3 text-right font-mono tabular-nums text-slate-200">
-                    {fill.fee.toFixed(2)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  return (
+                    <span className={`font-mono ${pnlClass}`}>
+                      {formatPnl(unrealised)} ({formatPercent(unrealisedPct)})
+                    </span>
+                  )
+                },
+              },
+            ]}
+          />
+        )}
+      </Card>
+
+      <Card>
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-medium text-gray-400 uppercase tracking-wider mb-3">History</h2>
+          <Button variant="secondary" size="sm" onClick={() => setShowHistory((current) => !current)}>
+            {showHistory ? 'Hide history' : 'Show history'}
+          </Button>
         </div>
-      </article>
+
+        {!showHistory ? (
+          <EmptyState message="History is collapsed" sub="Use Show history to view orders and fills." />
+        ) : (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-sm font-medium text-gray-400 uppercase tracking-wider mb-3">Order history</h2>
+              <Table<Order>
+                data={orders}
+                getRowKey={(order) => order.id}
+                emptyMessage="No orders yet"
+                columns={[
+                  { key: 'time', header: 'Time', render: (order) => formatLondonDateTime(order.createdAt) },
+                  { key: 'symbol', header: 'Symbol', render: (order) => <span className="font-mono">{order.asset.symbol}</span> },
+                  {
+                    key: 'side',
+                    header: 'Side',
+                    render: (order) => <Badge label={order.side.toUpperCase()} variant={order.side === 'buy' ? 'green' : 'red'} />,
+                  },
+                  { key: 'type', header: 'Type', render: (order) => order.orderType },
+                  { key: 'quantity', header: 'Quantity', align: 'right', render: (order) => <span className="font-mono">{formatNumber(order.quantity)}</span> },
+                  { key: 'price', header: 'Price', align: 'right', render: (order) => <span className="font-mono">{formatUSD(order.price)}</span> },
+                  {
+                    key: 'status',
+                    header: 'Status',
+                    render: (order) => (
+                      <Badge
+                        label={order.status}
+                        variant={order.status === 'filled' ? 'green' : order.status === 'cancelled' ? 'red' : 'gray'}
+                      />
+                    ),
+                  },
+                ]}
+              />
+            </div>
+
+            <div>
+              <h2 className="text-sm font-medium text-gray-400 uppercase tracking-wider mb-3">Trade history</h2>
+              <Table<Fill>
+                data={fills}
+                getRowKey={(fill) => fill.id}
+                emptyMessage="No fills yet"
+                columns={[
+                  { key: 'time', header: 'Time', render: (fill) => formatLondonDateTime(fill.createdAt) },
+                  { key: 'symbol', header: 'Symbol', render: (fill) => <span className="font-mono">{fill.asset.symbol}</span> },
+                  {
+                    key: 'side',
+                    header: 'Side',
+                    render: (fill) => <Badge label={fill.side.toUpperCase()} variant={fill.side === 'buy' ? 'green' : 'red'} />,
+                  },
+                  { key: 'quantity', header: 'Quantity', align: 'right', render: (fill) => <span className="font-mono">{formatNumber(fill.quantity)}</span> },
+                  {
+                    key: 'execution',
+                    header: 'Execution',
+                    align: 'right',
+                    render: (fill) => <span className="font-mono">{formatUSD(fill.executionPrice)}</span>,
+                  },
+                  { key: 'fee', header: 'Fee', align: 'right', render: (fill) => <span className="font-mono">{formatUSD(fill.fee)}</span> },
+                ]}
+              />
+            </div>
+          </div>
+        )}
+      </Card>
     </section>
   )
 }

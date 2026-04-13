@@ -1,8 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { Badge } from '../components/ui/Badge'
+import { Card } from '../components/ui/Card'
+import { EmptyState } from '../components/ui/EmptyState'
+import { SkeletonRow } from '../components/ui/SkeletonRow'
+import { StatCard } from '../components/ui/StatCard'
 import { useAuth } from '../contexts/AuthContext'
 import { formatLondonDateTime } from '../lib/datetime'
 import { supabase } from '../lib/supabase'
+import { formatNumber, formatPercent, formatPnl, formatUSD } from '../utils/formatNumber'
 
 type Asset = {
   id: string
@@ -45,13 +51,6 @@ function normalizeAsset<T extends { symbol: string; name?: string; id?: string }
   }
 
   return value
-}
-
-function formatMoney(amount: number): string {
-  return amount.toLocaleString('en-GB', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })
 }
 
 export function Dashboard() {
@@ -398,17 +397,20 @@ export function Dashboard() {
     [positions]
   )
 
-  if (loading) {
-    return <p className="text-slate-400">Loading dashboard…</p>
-  }
-
-  if (error) {
-    return <p className="text-rose-400">{error}</p>
-  }
-
   return (
-    <section className="space-y-4">
-      <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
+    <section className="space-y-6">
+      <div>
+        <h1 className="text-xl font-semibold text-white mb-1">Dashboard</h1>
+        <p className="text-sm text-gray-500 mb-6">Portfolio health, allocation, and watchlist pulse.</p>
+      </div>
+
+      {error ? (
+        <Card>
+          <p className="text-sm text-red-400">{error}</p>
+        </Card>
+      ) : null}
+
+      <Card>
         <div className="flex flex-col gap-3">
           <div>
             <h2 className="text-2xl font-semibold">Welcome back, {username}</h2>
@@ -417,9 +419,9 @@ export function Dashboard() {
             </p>
           </div>
         </div>
-      </div>
+      </Card>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Link
           to="/trade"
           className="rounded-xl border border-indigo-500/40 bg-indigo-500/10 p-4 transition hover:border-indigo-400/70 hover:bg-indigo-500/20"
@@ -492,34 +494,26 @@ export function Dashboard() {
           <p className="mt-1 text-xs text-fuchsia-200/80">Manage account and preferences</p>
         </Link>
 
-        <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-          <p className="text-xs uppercase tracking-wide text-slate-400">Total Equity</p>
-          <p className="mt-1 text-2xl font-bold text-cyan-300">£{formatMoney(totalEquity)}</p>
-          <p className="mt-1 text-xs text-slate-400">Cash + holdings</p>
-        </article>
-        <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-          <p className="text-xs uppercase tracking-wide text-slate-400">Holdings Value</p>
-          <p className="mt-1 text-2xl font-bold text-cyan-300">£{formatMoney(holdingsValue)}</p>
-          <p className="mt-1 text-xs text-slate-400">Live marked-to-market</p>
-        </article>
-        <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-          <p className="text-xs uppercase tracking-wide text-slate-400">Total Return %</p>
-          <p className={`mt-1 text-2xl font-bold ${isProfit ? 'text-green-400' : 'text-red-400'}`}>
-            {totalReturn.toFixed(2)}%
-          </p>
-          <p className="mt-1 text-xs text-slate-400">Starting balance: £100,000</p>
-        </article>
-        <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-          <p className="text-xs uppercase tracking-wide text-slate-400">Watchlist / Alerts</p>
-          <p className="mt-1 text-2xl font-bold text-slate-100">{watchlistAssets.length} / {alerts.length}</p>
-          <p className="mt-1 text-xs text-slate-400">Assets tracked / active alerts</p>
-        </article>
+        <StatCard label="Total equity" value={formatUSD(totalEquity)} sub="Cash + holdings" />
+        <StatCard label="Holdings value" value={formatUSD(holdingsValue)} valueColor="amber" sub="Live marked-to-market" />
+        <StatCard
+          label="Total return"
+          value={formatPercent(totalReturn)}
+          valueColor={isProfit ? 'green' : 'red'}
+          sub="Starting balance: $100,000"
+        />
+        <StatCard label="Watchlist / alerts" value={`${watchlistAssets.length} / ${alerts.length}`} sub="Assets tracked / active alerts" />
       </div>
 
-      <div className="grid gap-3 xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         <div className="space-y-3 xl:col-span-2">
-          <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-            <h3 className="mb-4 text-sm font-semibold text-slate-300">Portfolio Allocation</h3>
+          <Card>
+            <h2 className="text-sm font-medium text-gray-400 uppercase tracking-wider mb-3">Portfolio allocation</h2>
+            {loading ? (
+              Array.from({ length: 4 }).map((_, index) => <SkeletonRow key={index} />)
+            ) : allocationRows.length === 0 ? (
+              <EmptyState message="No allocations yet" sub="Positions will appear once you have holdings." />
+            ) : (
             <div className="space-y-4">
               {allocationRows.map((item) => {
                 const pnlClass = item.unrealisedPnl >= 0 ? 'text-green-400' : 'text-red-400'
@@ -528,29 +522,30 @@ export function Dashboard() {
                   <div key={item.assetId}>
                     <div className="mb-1 flex items-center justify-between text-xs text-slate-300">
                       <span className="font-mono font-semibold">{item.symbol}</span>
-                      <span>{item.weightPct.toFixed(1)}%</span>
+                      <span>{formatNumber(item.weightPct, 1)}%</span>
                     </div>
-                    <div className="h-2 overflow-hidden rounded-full bg-slate-800">
+                    <div className="h-1.5 overflow-hidden rounded-full bg-slate-800">
                       <div
                         className="h-full rounded-full bg-blue-500"
-                        style={{ width: `${item.weightPct.toFixed(2)}%` }}
+                        style={{ width: `${Math.min(100, Math.max(0, item.weightPct))}%` }}
                       />
                     </div>
                     <div className="mt-1 flex justify-between text-xs text-slate-400">
-                      <span>£{formatMoney(item.marketValue)}</span>
-                      <span className={pnlClass}>{item.unrealisedPnl >= 0 ? '+' : ''}£{formatMoney(item.unrealisedPnl)}</span>
+                      <span>{formatUSD(item.marketValue)}</span>
+                      <span className={pnlClass}>{formatPnl(item.unrealisedPnl)}</span>
                     </div>
                   </div>
                 )
               })}
             </div>
-          </article>
+            )}
+          </Card>
 
-          <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-            <h3 className="mb-3 text-sm font-semibold text-slate-300">Recent Activity</h3>
+          <Card>
+            <h2 className="text-sm font-medium text-gray-400 uppercase tracking-wider mb-3">Recent activity</h2>
             <div className="space-y-2">
               {fills.length === 0 ? (
-                <p className="text-sm text-slate-400">No recent fills.</p>
+                <EmptyState message="No recent fills" />
               ) : (
                 fills.map((fill) => (
                   <div
@@ -559,22 +554,22 @@ export function Dashboard() {
                   >
                     <span className="text-slate-400">{formatLondonDateTime(fill.createdAt)}</span>
                     <span className="font-mono font-semibold text-slate-100">{fill.asset.symbol}</span>
-                    <span className={fill.side === 'buy' ? 'text-green-400' : 'text-red-400'}>{fill.side.toUpperCase()}</span>
-                    <span className="font-mono tabular-nums text-slate-300">{fill.quantity.toFixed(2)}</span>
-                    <span className="font-mono tabular-nums text-cyan-300">{fill.executionPrice.toFixed(2)}</span>
+                    <Badge label={fill.side.toUpperCase()} variant={fill.side === 'buy' ? 'green' : 'red'} />
+                    <span className="font-mono tabular-nums text-slate-300">{formatNumber(fill.quantity)}</span>
+                    <span className="font-mono tabular-nums text-cyan-300">{formatUSD(fill.executionPrice)}</span>
                   </div>
                 ))
               )}
             </div>
-          </article>
+          </Card>
         </div>
 
         <div className="space-y-3">
-          <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-            <h3 className="mb-3 text-sm font-semibold text-slate-300">Watchlist Pulse</h3>
+          <Card>
+            <h2 className="text-sm font-medium text-gray-400 uppercase tracking-wider mb-3">Watchlist pulse</h2>
             <div className="space-y-2">
               {watchlistAssets.length === 0 ? (
-                <p className="text-sm text-slate-400">No watchlist assets yet.</p>
+                <EmptyState message="No watchlist assets" />
               ) : (
                 watchlistAssets.map((asset) => {
                   const live = latestPricesByAsset[asset.id]
@@ -591,12 +586,10 @@ export function Dashboard() {
                       </div>
                       <div className="text-right">
                         <p className="font-mono tabular-nums text-cyan-300">
-                          {typeof live === 'number' ? live.toFixed(2) : '—'}
+                          {typeof live === 'number' ? formatUSD(live) : '—'}
                         </p>
                         {inPortfolio ? (
-                          <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-[10px] font-semibold text-blue-300">
-                            In Portfolio
-                          </span>
+                          <Badge label="In portfolio" variant="blue" />
                         ) : null}
                       </div>
                     </div>
@@ -604,13 +597,13 @@ export function Dashboard() {
                 })
               )}
             </div>
-          </article>
+          </Card>
 
-          <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-            <h3 className="mb-3 text-sm font-semibold text-slate-300">Alerts Centre</h3>
+          <Card>
+            <h2 className="text-sm font-medium text-gray-400 uppercase tracking-wider mb-3">Alerts centre</h2>
             <div className="space-y-2">
               {alerts.length === 0 ? (
-                <p className="text-sm text-slate-400">No active alerts.</p>
+                <EmptyState message="No active alerts" />
               ) : (
                 alerts.map((alert) => (
                   <div
@@ -619,13 +612,13 @@ export function Dashboard() {
                   >
                     <p className="font-mono font-semibold text-slate-100">{alert.assetSymbol}</p>
                     <p className="text-xs text-slate-400">
-                      {alert.condition} {alert.targetPrice.toFixed(2)}
+                      {alert.condition} {formatUSD(alert.targetPrice)}
                     </p>
                   </div>
                 ))
               )}
             </div>
-          </article>
+          </Card>
         </div>
       </div>
     </section>
