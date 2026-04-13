@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { Badge } from '../components/ui/Badge'
 import { Card } from '../components/ui/Card'
 import { EmptyState } from '../components/ui/EmptyState'
@@ -422,78 +421,6 @@ export function Dashboard() {
       </Card>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Link
-          to="/trade"
-          className="rounded-xl border border-indigo-500/40 bg-indigo-500/10 p-4 transition hover:border-indigo-400/70 hover:bg-indigo-500/20"
-        >
-          <p className="text-xs uppercase tracking-wide text-indigo-300">Trading</p>
-          <p className="mt-1 text-lg font-semibold text-indigo-100">Open Trading Terminal</p>
-          <p className="mt-1 text-xs text-indigo-200/80">Place market and limit orders</p>
-        </Link>
-
-        <Link
-          to="/portfolio"
-          className="rounded-xl border border-cyan-500/40 bg-cyan-500/10 p-4 transition hover:border-cyan-400/70 hover:bg-cyan-500/20"
-        >
-          <p className="text-xs uppercase tracking-wide text-cyan-300">Portfolio</p>
-          <p className="mt-1 text-lg font-semibold text-cyan-100">View Portfolio</p>
-          <p className="mt-1 text-xs text-cyan-200/80">Check positions and performance</p>
-        </Link>
-
-        <Link
-          to="/watchlist"
-          className="rounded-xl border border-slate-500/40 bg-slate-500/10 p-4 transition hover:border-slate-400/70 hover:bg-slate-500/20"
-        >
-          <p className="text-xs uppercase tracking-wide text-slate-300">Watchlist</p>
-          <p className="mt-1 text-lg font-semibold text-slate-100">Manage Watchlist</p>
-          <p className="mt-1 text-xs text-slate-300/80">Track assets and configure alerts</p>
-        </Link>
-
-        <Link
-          to="/markets"
-          className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-4 transition hover:border-emerald-400/70 hover:bg-emerald-500/20"
-        >
-          <p className="text-xs uppercase tracking-wide text-emerald-300">Markets</p>
-          <p className="mt-1 text-lg font-semibold text-emerald-100">Open Markets</p>
-          <p className="mt-1 text-xs text-emerald-200/80">Browse metals, charts, and prices</p>
-        </Link>
-
-        <Link
-          to="/freight"
-          className="rounded-xl border border-violet-500/40 bg-violet-500/10 p-4 transition hover:border-violet-400/70 hover:bg-violet-500/20"
-        >
-          <p className="text-xs uppercase tracking-wide text-violet-300">Freight</p>
-          <p className="mt-1 text-lg font-semibold text-violet-100">Open Freight Desk</p>
-          <p className="mt-1 text-xs text-violet-200/80">Evaluate routes, rates, and vessel fit</p>
-        </Link>
-
-        <Link
-          to="/cargo"
-          className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 transition hover:border-amber-400/70 hover:bg-amber-500/20"
-        >
-          <p className="text-xs uppercase tracking-wide text-amber-300">Cargo</p>
-          <p className="mt-1 text-lg font-semibold text-amber-100">Open Live Cargo</p>
-          <p className="mt-1 text-xs text-amber-200/80">Track shipments and route progress</p>
-        </Link>
-
-        <Link
-          to="/chat"
-          className="rounded-xl border border-blue-500/40 bg-blue-500/10 p-4 transition hover:border-blue-400/70 hover:bg-blue-500/20"
-        >
-          <p className="text-xs uppercase tracking-wide text-blue-300">Chat</p>
-          <p className="mt-1 text-lg font-semibold text-blue-100">Open Messaging</p>
-          <p className="mt-1 text-xs text-blue-200/80">Direct message counterparties and users</p>
-        </Link>
-
-        <Link
-          to="/settings"
-          className="rounded-xl border border-fuchsia-500/40 bg-fuchsia-500/10 p-4 transition hover:border-fuchsia-400/70 hover:bg-fuchsia-500/20"
-        >
-          <p className="text-xs uppercase tracking-wide text-fuchsia-300">Settings</p>
-          <p className="mt-1 text-lg font-semibold text-fuchsia-100">Open Settings</p>
-          <p className="mt-1 text-xs text-fuchsia-200/80">Manage account and preferences</p>
-        </Link>
-
         <StatCard label="Total equity" value={formatUSD(totalEquity)} sub="Cash + holdings" />
         <StatCard label="Holdings value" value={formatUSD(holdingsValue)} valueColor="amber" sub="Live marked-to-market" />
         <StatCard

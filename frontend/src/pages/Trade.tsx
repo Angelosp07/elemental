@@ -1,7 +1,17 @@
 import { useEffect, useState } from 'react'
+import { Badge } from '../components/ui/Badge'
+import { Button } from '../components/ui/Button'
+import { Card } from '../components/ui/Card'
+import { EmptyState } from '../components/ui/EmptyState'
+import { Input } from '../components/ui/Input'
+import { Select } from '../components/ui/Select'
+import { SkeletonRow } from '../components/ui/SkeletonRow'
+import { StatCard } from '../components/ui/StatCard'
+import { Table } from '../components/ui/Table'
 import { useAuth } from '../contexts/AuthContext'
 import { formatLondonDateTime } from '../lib/datetime'
 import { backendApi } from '../lib/backendApi'
+import { formatNumber, formatUSD } from '../utils/formatNumber'
 
 type Asset = {
   id: string
@@ -52,6 +62,7 @@ export function Trade() {
   const [orderType, setOrderType] = useState<'market' | 'limit'>('market')
   const [quantity, setQuantity] = useState('')
   const [price, setPrice] = useState('')
+  const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -63,6 +74,7 @@ export function Trade() {
     let active = true
 
     const load = async () => {
+      setLoading(true)
       try {
         const [assetData, orderData, fillData] = await Promise.all([
           backendApi.get<Asset[]>('/api/trade/assets'),
@@ -88,6 +100,10 @@ export function Trade() {
         const message =
           caughtError instanceof Error ? caughtError.message : 'Failed to load trade data'
         setError(message)
+      } finally {
+        if (active) {
+          setLoading(false)
+        }
       }
     }
 
@@ -101,7 +117,7 @@ export function Trade() {
       active = false
       window.clearInterval(intervalId)
     }
-  }, [assetId, user])
+  }, [user])
 
   const submitOrder = async () => {
     if (!user) {
@@ -174,171 +190,216 @@ export function Trade() {
     }
   }
 
-  return (
-    <section className="space-y-4">
-      <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-        <h2 className="text-lg font-semibold">Trading Terminal</h2>
-        <p className="mt-1 text-xs text-slate-400">Backend-mediated market/limit order flow</p>
+  const openOrders = orders.filter((order) => order.status === 'open' || order.status === 'pending').length
 
-        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-          <select
+  const selectedAsset = assets.find((asset) => asset.id === assetId) ?? null
+
+  return (
+    <section className="space-y-6">
+      <div>
+        <h1 className="text-xl font-semibold text-white mb-1">Trade</h1>
+        <p className="text-sm text-gray-500 mb-6">Backend-mediated market and limit order execution.</p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <StatCard label="Assets" value={assets.length} sub="Tradable minerals" />
+        <StatCard label="Open orders" value={openOrders} sub="Pending + open" valueColor="amber" />
+        <StatCard label="Total orders" value={orders.length} sub="Recent order book" />
+        <StatCard label="Total fills" value={fills.length} sub="Executed trades" valueColor="green" />
+      </div>
+
+      {error ? (
+        <Card>
+          <p className="text-sm text-red-400">{error}</p>
+        </Card>
+      ) : null}
+
+      <Card>
+        <h2 className="text-sm font-medium text-gray-400 uppercase tracking-wider mb-3">Order ticket</h2>
+
+        {selectedAsset ? (
+          <div className="mb-4 inline-flex items-center gap-2 rounded-md border border-indigo-500/30 bg-indigo-500/10 px-3 py-1.5 text-xs text-indigo-200">
+            <span className="font-mono">{selectedAsset.symbol}</span>
+            <span>{selectedAsset.name}</span>
+          </div>
+        ) : null}
+
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+          <Select
+            label="Asset"
             value={assetId}
             onChange={(event) => setAssetId(event.target.value)}
-            className="rounded-md border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm"
-          >
-            {assets.map((asset) => (
-              <option key={asset.id} value={asset.id}>
-                {asset.symbol} · {asset.name}
-              </option>
-            ))}
-          </select>
+            options={assets.map((asset) => ({ value: asset.id, label: `${asset.symbol} · ${asset.name}` }))}
+          />
 
-          <select
+          <Select
+            label="Side"
             value={side}
             onChange={(event) => setSide(event.target.value as 'buy' | 'sell')}
-            className="rounded-md border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm"
-          >
-            <option value="buy">Buy</option>
-            <option value="sell">Sell</option>
-          </select>
+            options={[
+              { value: 'buy', label: 'Buy' },
+              { value: 'sell', label: 'Sell' },
+            ]}
+          />
 
-          <select
+          <Select
+            label="Order type"
             value={orderType}
             onChange={(event) => setOrderType(event.target.value as 'market' | 'limit')}
-            className="rounded-md border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm"
-          >
-            <option value="market">Market</option>
-            <option value="limit">Limit</option>
-          </select>
+            options={[
+              { value: 'market', label: 'Market' },
+              { value: 'limit', label: 'Limit' },
+            ]}
+          />
 
-          <input
+          <Input
+            label="Quantity"
             value={quantity}
             onChange={(event) => setQuantity(event.target.value)}
-            placeholder="Quantity"
-            className="rounded-md border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm"
+            placeholder="0.00"
+            inputMode="decimal"
           />
 
-          <input
+          <Input
+            label="Limit price"
             value={price}
             onChange={(event) => setPrice(event.target.value)}
-            placeholder={orderType === 'limit' ? 'Limit price' : 'Optional price'}
+            placeholder={orderType === 'limit' ? '0.00' : 'Market order'}
             disabled={orderType !== 'limit'}
-            className="rounded-md border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm disabled:opacity-50"
+            inputMode="decimal"
           />
 
-          <button
-            type="button"
-            disabled={submitting}
-            onClick={submitOrder}
-            className="rounded-md bg-indigo-500 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-400 disabled:opacity-60"
-          >
-            {submitting ? 'Submitting…' : 'Submit Order'}
-          </button>
+          <div className="flex items-end">
+            <Button type="button" className="w-full" onClick={submitOrder} loading={submitting}>
+              Submit order
+            </Button>
+          </div>
         </div>
+      </Card>
 
-        {error ? <p className="mt-3 text-sm text-rose-300">{error}</p> : null}
-      </article>
+      <Card>
+        <h2 className="text-sm font-medium text-gray-400 uppercase tracking-wider mb-3">Orders</h2>
 
-      <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-        <h3 className="mb-3 text-sm font-semibold text-slate-300">Orders</h3>
-        <div className="overflow-hidden rounded-md border border-slate-800">
-          <table className="min-w-full divide-y divide-slate-800 text-left text-sm">
-            <thead className="bg-slate-950/60 text-xs uppercase tracking-wide text-slate-400">
-              <tr>
-                <th className="px-3 py-2">Time</th>
-                <th className="px-3 py-2">Asset</th>
-                <th className="px-3 py-2">Side</th>
-                <th className="px-3 py-2">Type</th>
-                <th className="px-3 py-2 text-right">Qty</th>
-                <th className="px-3 py-2 text-right">Price</th>
-                <th className="px-3 py-2">Status</th>
-                <th className="px-3 py-2">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800">
-              {orders.map((order) => {
-                const asset = normalizeAsset(order.asset)
-                const canCancel = order.status === 'open' || order.status === 'pending'
+        {loading ? (
+          Array.from({ length: 5 }).map((_, index) => <SkeletonRow key={index} />)
+        ) : orders.length === 0 ? (
+          <EmptyState message="No orders yet" sub="Submit your first market or limit order above." />
+        ) : (
+          <Table<Order>
+            data={orders}
+            getRowKey={(order) => order.id}
+            columns={[
+              { key: 'time', header: 'Time', render: (order) => formatLondonDateTime(order.created_at) },
+              {
+                key: 'asset',
+                header: 'Asset',
+                render: (order) => <span className="font-mono text-white">{normalizeAsset(order.asset)?.symbol ?? '—'}</span>,
+              },
+              {
+                key: 'side',
+                header: 'Side',
+                render: (order) => (
+                  <Badge label={order.side.toUpperCase()} variant={order.side === 'buy' ? 'green' : 'red'} />
+                ),
+              },
+              {
+                key: 'type',
+                header: 'Type',
+                render: (order) => <span className="uppercase text-xs text-gray-300">{order.order_type}</span>,
+              },
+              {
+                key: 'qty',
+                header: 'Qty',
+                align: 'right',
+                render: (order) => <span className="font-mono">{formatNumber(Number(order.quantity))}</span>,
+              },
+              {
+                key: 'price',
+                header: 'Price',
+                align: 'right',
+                render: (order) => <span className="font-mono">{formatUSD(Number(order.price))}</span>,
+              },
+              {
+                key: 'status',
+                header: 'Status',
+                render: (order) => {
+                  const variant =
+                    order.status === 'filled'
+                      ? 'green'
+                      : order.status === 'cancelled'
+                        ? 'red'
+                        : order.status === 'pending'
+                          ? 'amber'
+                          : 'gray'
+                  return <Badge label={order.status} variant={variant} />
+                },
+              },
+              {
+                key: 'action',
+                header: 'Action',
+                render: (order) => {
+                  const canCancel = order.status === 'open' || order.status === 'pending'
+                  return canCancel ? (
+                    <Button type="button" variant="ghost" size="sm" onClick={() => cancelOrder(order.id)}>
+                      Cancel
+                    </Button>
+                  ) : (
+                    <span className="text-xs text-gray-600">—</span>
+                  )
+                },
+              },
+            ]}
+          />
+        )}
+      </Card>
 
-                return (
-                  <tr key={order.id}>
-                    <td className="px-3 py-2 text-xs text-slate-400">
-                      {formatLondonDateTime(order.created_at)}
-                    </td>
-                    <td className="px-3 py-2 font-mono text-slate-100">{asset?.symbol ?? '—'}</td>
-                    <td className={`px-3 py-2 font-semibold ${order.side === 'buy' ? 'text-green-400' : 'text-red-400'}`}>
-                      {order.side.toUpperCase()}
-                    </td>
-                    <td className="px-3 py-2 uppercase text-slate-300">{order.order_type}</td>
-                    <td className="px-3 py-2 text-right font-mono tabular-nums text-slate-200">
-                      {Number(order.quantity).toFixed(2)}
-                    </td>
-                    <td className="px-3 py-2 text-right font-mono tabular-nums text-slate-200">
-                      {Number(order.price).toFixed(2)}
-                    </td>
-                    <td className="px-3 py-2 text-slate-300">{order.status}</td>
-                    <td className="px-3 py-2">
-                      {canCancel ? (
-                        <button
-                          type="button"
-                          onClick={() => cancelOrder(order.id)}
-                          className="rounded border border-slate-700 px-2 py-1 text-xs text-slate-200 hover:bg-slate-800"
-                        >
-                          Cancel
-                        </button>
-                      ) : null}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      </article>
+      <Card>
+        <h2 className="text-sm font-medium text-gray-400 uppercase tracking-wider mb-3">Fills</h2>
 
-      <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-        <h3 className="mb-3 text-sm font-semibold text-slate-300">Fills</h3>
-        <div className="overflow-hidden rounded-md border border-slate-800">
-          <table className="min-w-full divide-y divide-slate-800 text-left text-sm">
-            <thead className="bg-slate-950/60 text-xs uppercase tracking-wide text-slate-400">
-              <tr>
-                <th className="px-3 py-2">Time</th>
-                <th className="px-3 py-2">Asset</th>
-                <th className="px-3 py-2">Side</th>
-                <th className="px-3 py-2 text-right">Qty</th>
-                <th className="px-3 py-2 text-right">Execution</th>
-                <th className="px-3 py-2 text-right">Fee</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800">
-              {fills.map((fill) => {
-                const asset = normalizeAsset(fill.asset)
-
-                return (
-                  <tr key={fill.id}>
-                    <td className="px-3 py-2 text-xs text-slate-400">
-                      {formatLondonDateTime(fill.created_at)}
-                    </td>
-                    <td className="px-3 py-2 font-mono text-slate-100">{asset?.symbol ?? '—'}</td>
-                    <td className={`px-3 py-2 font-semibold ${fill.side === 'buy' ? 'text-green-400' : 'text-red-400'}`}>
-                      {fill.side.toUpperCase()}
-                    </td>
-                    <td className="px-3 py-2 text-right font-mono tabular-nums text-slate-200">
-                      {Number(fill.quantity).toFixed(2)}
-                    </td>
-                    <td className="px-3 py-2 text-right font-mono tabular-nums text-slate-200">
-                      {Number(fill.execution_price).toFixed(2)}
-                    </td>
-                    <td className="px-3 py-2 text-right font-mono tabular-nums text-slate-200">
-                      {Number(fill.fee).toFixed(2)}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      </article>
+        {loading ? (
+          Array.from({ length: 5 }).map((_, index) => <SkeletonRow key={index} />)
+        ) : fills.length === 0 ? (
+          <EmptyState message="No fills yet" sub="Executed trades will appear here in real time." />
+        ) : (
+          <Table<Fill>
+            data={fills}
+            getRowKey={(fill) => fill.id}
+            columns={[
+              { key: 'time', header: 'Time', render: (fill) => formatLondonDateTime(fill.created_at) },
+              {
+                key: 'asset',
+                header: 'Asset',
+                render: (fill) => <span className="font-mono text-white">{normalizeAsset(fill.asset)?.symbol ?? '—'}</span>,
+              },
+              {
+                key: 'side',
+                header: 'Side',
+                render: (fill) => (
+                  <Badge label={fill.side.toUpperCase()} variant={fill.side === 'buy' ? 'green' : 'red'} />
+                ),
+              },
+              {
+                key: 'qty',
+                header: 'Qty',
+                align: 'right',
+                render: (fill) => <span className="font-mono">{formatNumber(Number(fill.quantity))}</span>,
+              },
+              {
+                key: 'execution',
+                header: 'Execution',
+                align: 'right',
+                render: (fill) => <span className="font-mono">{formatUSD(Number(fill.execution_price))}</span>,
+              },
+              {
+                key: 'fee',
+                header: 'Fee',
+                align: 'right',
+                render: (fill) => <span className="font-mono">{formatUSD(Number(fill.fee))}</span>,
+              },
+            ]}
+          />
+        )}
+      </Card>
     </section>
   )
 }
